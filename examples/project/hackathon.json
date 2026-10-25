@@ -1,0 +1,17 @@
+{
+  "title": "Hackathon",
+  "description": "One day, five tracks, ship something demoable by 5pm.",
+  "goal": "Working end-to-end demo of the new onboarding flow",
+  "rules": [
+    "Claim an area before a big refactor; release it when you're done",
+    "Breaking API changes must be announced with `team change ... --breaking`",
+    "Answer asks addressed to you before starting new work"
+  ],
+  "policy": {
+    "overlap_action": "warn"
+  },
+  "fields": {
+    "demo_time": "17:00",
+    "tracks": "dashboard,task-board,commit-guard"
+  }
+}

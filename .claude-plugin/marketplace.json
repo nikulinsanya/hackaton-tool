@@ -1,0 +1,14 @@
+{
+  "name": "smartdodos",
+  "description": "SmartDodos internal Claude Code plugins",
+  "owner": {
+    "name": "Sanya Nikulin"
+  },
+  "plugins": [
+    {
+      "name": "team-sync",
+      "source": "./plugins/team-sync",
+      "description": "Share status, decisions and file touches between Claude Code agents through a git branch. No server."
+    }
+  ]
+}

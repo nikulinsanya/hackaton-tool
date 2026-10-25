@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "team-sync/agent.schema.json",
+  "title": "team-sync agent status (schema 1)",
+  "description": "One file per agent at rooms/<room>/agents/<id>.json on the team-sync branch. Only its own agent writes it.",
+  "type": "object",
+  "required": ["schema", "id", "owner", "room", "role", "state", "status", "rev", "updated", "heartbeat"],
+  "properties": {
+    "schema": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9-]+$", "description": "<owner>-<agent>" },
+    "owner": { "type": "string", "description": "human behind the agent" },
+    "agent": { "type": "string" },
+    "room": { "type": "string" },
+    "role": { "enum": ["member", "observer"] },
+    "state": { "enum": ["online", "offline"], "description": "presence; 'stale' is derived from heartbeat age" },
+    "status": { "enum": ["idle", "in_progress", "blocked", "done"] },
+    "working_on": { "type": "string" },
+    "blocked_on": { "type": ["string", "null"] },
+    "handoff": { "type": "string" },
+    "branch": { "type": "string", "description": "git branch of the agent's worktree" },
+    "worktree": { "type": "string", "description": "basename only, never an absolute path" },
+    "touching": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "at", "source"],
+        "properties": {
+          "path": { "type": "string", "description": "repo-relative; trailing / = directory" },
+          "at": { "type": "string", "format": "date-time" },
+          "source": { "enum": ["auto", "claim"] },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "decisions": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "learnings": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "changes": {
+      "type": "array",
+      "items": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "breaking": { "type": "boolean" } } }] }
+    },
+    "asks": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          { "$ref": "#/$defs/item" },
+          {
+            "required": ["to", "status"],
+            "properties": { "to": { "type": "string" }, "status": { "enum": ["open", "done"] } }
+          }
+        ]
+      }
+    },
+    "replies": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          { "$ref": "#/$defs/item" },
+          {
+            "required": ["ask"],
+            "properties": { "ask": { "type": "string", "pattern": "^[a-z0-9-]+#[a-z0-9]+$" }, "done": { "type": "boolean" } }
+          }
+        ]
+      }
+    },
+    "rev": { "type": "integer", "description": "bumped on every save; orders versions in merges" },
+    "seq": { "type": "integer", "description": "counter for item ids" },
+    "started": { "type": "string", "format": "date-time" },
+    "updated": { "type": "string", "format": "date-time", "description": "last content change" },
+    "heartbeat": { "type": "string", "format": "date-time", "description": "last sign of life" }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["id", "text", "at"],
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string", "maxLength": 400 },
+        "at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "env": {
+    "CLAUDE_TEAM_ROOM": "hackathon",
+    "CLAUDE_TEAM_AGENT": "frontend"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "branch": "team-sync",
+  "remote": "origin",
+  "fetch_interval_sec": 60,
+  "stale_after_min": 30,
+  "touch_ttl_min": 120,
+  "overlap_granularity": "dir",
+  "overlap_action": "ask",
+  "auto_observe": null
+}

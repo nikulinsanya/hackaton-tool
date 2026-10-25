@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "team-sync/room-config.schema.json",
+  "title": "team-sync room config (schema 1)",
+  "description": "One file per writer at rooms/<room>/config/<writer-id>.json on the team-sync branch. Only its own writer (the agent id, or the owner slug for a non-joined human) writes it. The effective value of a key across the whole room is the entry with the highest (clock, at, writer); null means unset.",
+  "type": "object",
+  "required": ["schema", "writer", "room", "rev", "fields"],
+  "properties": {
+    "schema": { "const": 1 },
+    "writer": { "type": "string", "description": "agent id, or owner slug for a non-joined human" },
+    "room": { "type": "string" },
+    "rev": { "type": "integer", "description": "bumped on every save; orders versions in merges" },
+    "seq": { "type": "integer", "description": "counter for this writer's rule ids (rule.<writer>.r<n>)" },
+    "updated": { "type": "string", "format": "date-time" },
+    "fields": {
+      "type": "object",
+      "description": "key -> field entry. Keys: title, description, goal; rule.<writer>.r<n>; policy.<name> (allowlisted); or a custom field matching ^[a-z][a-z0-9_-]{0,31}$.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["value", "clock", "at"],
+        "properties": {
+          "value": {
+            "description": "the field's value; null means this key was unset by this writer",
+            "type": ["string", "integer", "null"]
+          },
+          "clock": {
+            "type": "integer",
+            "description": "Lamport clock: 1 + the highest clock seen for this key across every writer file at the time of the write"
+          },
+          "at": { "type": "string", "format": "date-time", "description": "tie-breaker if clocks ever collide" }
+        }
+      }
+    }
+  }
+}
