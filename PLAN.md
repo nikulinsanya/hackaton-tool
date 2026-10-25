@@ -36,7 +36,7 @@ Only the interactive-UI parts remain unverified. Fix what breaks, add a test for
       `/team-sync:join` works mid-session and the next prompt gets the briefing.
 - [ ] Digest arrives mid-turn during a long task (PostToolUse `additionalContext`).
 - [ ] Run the tests on macOS with stock `python3` (3.9) and git.
-- [ ] Push this repo to the company git host. The hackathon dogfoods *this* repo, so everyone runs
+- [x] Push this repo to `git@gitlab.com:nikulinsanya/hackaton-tool.git`. The hackathon dogfoods *this* repo, so everyone runs
       `claude --plugin-dir <stable checkout>/plugins/team-sync` (point it at main, not the agent's own
       worktree, so an agent never runs its own half-edited `team.py`). No marketplace install needed.
 
