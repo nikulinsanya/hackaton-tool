@@ -34,7 +34,7 @@ import tempfile
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 SCHEMA = 1
 CONFIG_FILE = ".team-sync.json"
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -95,6 +95,11 @@ BREAKING_IMPACT_INSTR_SHORT = (
     "For each: start with a one-line warning (who changed what), then a quick "
     "impact check (grep the affected symbol/route/field); propose the adaptation, "
     "don't apply it unless your human agrees."
+)
+READY_INSTR = (
+    "For each READY item: tell your human in one line at the start of your answer. "
+    "If your current task needs it, use it as described there (no need to ask the "
+    "announcing agent first)."
 )
 STOP_INCOMING_INSTR = (
     "Before you finish, add to your answer a one-line warning for each (who changed "
@@ -1220,8 +1225,11 @@ def digest(ctx: Ctx, sess: Dict[str, Any]) -> List[str]:
                     aid, it.get("id"), it.get("status", "")) in shown:
                 continue
             if is_new("changes", it) and (it.get("breaking") or not observer):
-                tag = "!! BREAKING CHANGE" if it.get("breaking") else "> CHANGE"
-                lines.append("{} by {}: {}".format(tag, aid, it.get("text")))
+                if it.get("kind") == "ready":
+                    lines.append("* READY from {}: {}".format(aid, it.get("text")))
+                else:
+                    tag = "!! BREAKING CHANGE" if it.get("breaking") else "> CHANGE"
+                    lines.append("{} by {}: {}".format(tag, aid, it.get("text")))
         for it in doc.get("decisions") or []:
             if is_new("decisions", it):
                 lines.append("> DECISION by {}: {}".format(aid, it.get("text")))
@@ -1304,6 +1312,11 @@ def format_agent(doc: Dict[str, Any], me: Optional[str], cfg: Dict[str, Any],
     if touching and doc["_presence"] == "online":
         out.append(sub + "touching: " + ", ".join(
             t["path"] + (" (claim)" if t.get("source") == "claim" else "") for t in touching[-6:]))
+    ready_items = [c for c in doc.get("changes") or [] if c.get("kind") == "ready"]
+    if ready_items:
+        latest = max(ready_items, key=lambda c: str(c.get("at", "")))
+        if within(latest.get("at"), 86400):
+            out.append(sub + "ready: {}".format(latest.get("text")))
     for a in doc.get("asks") or []:
         if a.get("status") == "open":
             out.append(sub + "open ask -> {} [{}#{}]: {}".format(a.get("to"), doc["id"], a.get("id"), a.get("text")))
@@ -1376,6 +1389,13 @@ def briefing(ctx: Ctx) -> str:
         L.extend("  - {} ({})".format(x.get("text"), aid) for aid, x in breaking)
         L.append(BREAKING_IMPACT_INSTR_SHORT)
     if ident["role"] == "member":
+        ready = [(d["id"], x) for d in others for x in d.get("changes") or []
+                if x.get("kind") == "ready" and within(x.get("at"), 7 * 86400)]
+        ready.sort(key=lambda p: str(p[1].get("at", "")), reverse=True)
+        if ready:
+            L.append("Available from the team (announced):")
+            L.extend("  - {} ({}, {})".format(x.get("text"), aid, human_age(x.get("at")))
+                     for aid, x in ready[:8])
         learn = [(d["id"], x) for d in others for x in d.get("learnings") or []]
         learn.sort(key=lambda p: str(p[1].get("at", "")))
         if learn:
@@ -1385,7 +1405,8 @@ def briefing(ctx: Ctx) -> str:
         L.append("Team CLI: {} <command>. Use the team-sync:team-protocol skill for the full rules. Essentials:".format(CMD))
         L.append('- When you start a task: update --status in_progress --working-on "<task>"')
         L.append('- When blocked: update --blocked-on "<what>". When done: update --status done --handoff "<state + next steps>"')
-        L.append('- Share: learn "<text>" | decide "<text>" | change "<text>" [--breaking] | ask <agent-id|all> "<text>"')
+        L.append('- Share: learn "<text>" | decide "<text>" | change "<text>" [--breaking] | '
+                 'announce "<what is ready + how to use it>" | ask <agent-id|all> "<text>"')
         L.append('- Answer an ask (never answer with a new ask): reply <agent-id>#<ask-id> "<answer>" [--done]')
         L.append("- Your edits are recorded automatically. Claim a whole area before a big refactor: claim <path/>")
         if ctx.cfg.get("overlap_action") == "warn":
@@ -1444,6 +1465,8 @@ def _digest_text(ctx: Ctx, lines: List[str]) -> str:
         ctx.ident["room"], "\n".join(lines))
     if any(l.startswith("!! BREAKING CHANGE") for l in lines):
         text += "\n\n" + BREAKING_IMPACT_INSTR
+    if any(l.startswith("* READY") for l in lines):
+        text += "\n\n" + READY_INSTR
     return text
 
 
@@ -1873,12 +1896,12 @@ def cmd_update(args: argparse.Namespace) -> int:
     return _mutate(args, "update", fn)
 
 
-def _add_item(kind: str, prefix: str, **fields: Any) -> Any:
+def _add_item(list_name: str, prefix: str, **fields: Any) -> Any:
     def fn(ctx: Ctx, doc: Dict[str, Any]) -> str:
         item = {"id": next_id(doc, prefix), "at": now_iso()}
         item.update(fields)
-        doc.setdefault(kind, []).append(item)
-        return "added {} {}".format(kind[:-1], item["id"])
+        doc.setdefault(list_name, []).append(item)
+        return "added {} {}".format(list_name[:-1], item["id"])
     return fn
 
 
@@ -1893,6 +1916,11 @@ def cmd_decide(args: argparse.Namespace) -> int:
 def cmd_change(args: argparse.Namespace) -> int:
     return _mutate(args, "change", _add_item("changes", "c", text=clean_text(args.text, "change"),
                                             breaking=bool(args.breaking)))
+
+
+def cmd_announce(args: argparse.Namespace) -> int:
+    return _mutate(args, "announce", _add_item("changes", "c", text=clean_text(args.text, "announce"),
+                                              breaking=False, kind="ready"))
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
@@ -2259,6 +2287,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("change", cmd_change, "announce a change others may depend on")
     sp.add_argument("text")
     sp.add_argument("--breaking", action="store_true")
+    sp = add("announce", cmd_announce, "announce something ready for other agents to use")
+    sp.add_argument("text")
     sp = add("ask", cmd_ask, "ask another agent (or 'all') for something")
     sp.add_argument("to")
     sp.add_argument("text")

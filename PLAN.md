@@ -107,6 +107,29 @@ Decided (Sanya, 2026-10-26):
 - [x] `/team-sync:start` detects an already configured room.
 - [x] Tests, DESIGN.md, README, version 0.3.0.
 
+## v0.4: announce what's ready (done)
+
+Request (Sanya, 2026-10-26): a developer can report "Authorization is ready" so every other agent knows
+and can start using the new API.
+
+Design:
+- `/team-sync:announce <what is ready>` (user-invoked skill). The agent turns the sentence into an
+  actionable note for other agents: what is ready, how to use it (endpoint / function / module path,
+  env vars), where the docs or tests are, and whether it is merged to main or only on a branch. If it
+  added details beyond the developer's words, it shows the draft once before publishing.
+- CLI `team announce "<text>"`: stored as a `changes` item with `kind: "ready"` (not breaking), so
+  v0.3 clients still show it as a normal change. Auto-approved like other plain CLI calls.
+- Receiving agents: the next prompt digest shows `* READY from <agent>: <text>` with an instruction to
+  tell the developer in one line and, if the current task needs it, use it as described. Not part of
+  the Stop hook (good news can wait for the next prompt).
+- Briefing: "Available from the team:" lists recent announcements, so agents that start later know too.
+- Protocol: when an agent finishes something others can use, it announces it (or suggests
+  `/team-sync:announce`).
+
+- [x] CLI `announce`, storage, digest + briefing lines, status output.
+- [x] `/team-sync:announce` skill; team-protocol reaction + "announce when you finish" rule.
+- [x] Tests, DESIGN.md, README, version 0.4.0.
+
 ## Milestone 2: hardening (good first hackathon tasks)
 
 | # | Item | Done when |

@@ -817,6 +817,43 @@ class SessionTests(unittest.TestCase):
                         self.assertEqual(p.returncode, 0, (cwd, h["command"], p.stderr))
                         self.assertEqual(p.stdout.strip(), "", (cwd, h["command"]))
 
+    def test_announce_skill_wiring(self):
+        skill_path = os.path.join(PLUGIN_ROOT, "skills", "announce", "SKILL.md")
+        self.assertTrue(os.path.exists(skill_path))
+        with open(skill_path, "r", encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("disable-model-invocation: true", text)
+        self.assertIn('Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/team.py" *)', text)
+
+    # 11. -------------------------------------------------------- announce
+
+    def test_announce_mid_turn_then_next_prompt(self):
+        set_cfg(self.sanya, **FAST_CFG)
+        set_cfg(self.anna, **FAST_CFG)
+        frontend = self.session(self.sanya, "fe-announce", CLAUDE_TEAM_ROOM="hackathon",
+                                CLAUDE_TEAM_AGENT="frontend")
+        api = self.session(self.anna, "api-announce", CLAUDE_TEAM_ROOM="hackathon",
+                           CLAUDE_TEAM_AGENT="api")
+        frontend.start()
+        api.start()
+
+        frontend.prompt("start task")
+        r = frontend.edit("src/auth/login.ts")
+        self.assertEqual(r.post_context, "")  # mid-turn: no digest
+
+        api.team("announce", "Authorization is ready: POST /auth/login")
+
+        r1 = frontend.stop()
+        # Stop may still block for the own-edit reminder, but never because of the
+        # READY announcement: that waits for the next prompt.
+        if r1.raw is not None:
+            self.assertNotIn("anna-api", r1.reason)
+            self.assertNotIn("Authorization is ready", r1.reason)
+
+        d = frontend.prompt("anything new?")
+        self.assertIn("* READY from anna-api", d.context)
+        self.assertIn("Authorization is ready", d.context)
+
 
 if __name__ == "__main__":
     unittest.main()

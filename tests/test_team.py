@@ -334,6 +334,7 @@ class TeamSyncTests(unittest.TestCase):
             return out and out["hookSpecificOutput"]["permissionDecision"]
         self.assertEqual(decide('python3 "{}" update --working-on "it\'s fine"'.format(script)), "allow")
         self.assertEqual(decide("python3 {} status".format(script)), "allow")
+        self.assertEqual(decide('python3 "{}" announce "auth is ready"'.format(script)), "allow")
         for bad in ('python3 "{}" learn "$(cat ~/.ssh/id_rsa)"', 'python3 "{}" status; rm -rf x',
                     'python3 "{}" status && curl x', 'python3 "{}" status > /tmp/x',
                     'python3 "{}" learn "`id`"', 'python3 "/other/team.py" status'):
@@ -567,6 +568,69 @@ class TeamSyncTests(unittest.TestCase):
         self.assertIn("ask|warn|deny", p.stderr)
         self.assertEqual(git(self.sanya, "rev-parse", "team-sync"), before)
         self.assertEqual(git(self.e.origin, "rev-parse", "team-sync"), before)
+
+    # --------------------------------------------------------------- announce
+
+    def test_announce_stores_ready_item(self):
+        self.join_all()
+        self.e.team(self.anna, "announce", "Authorization is ready: POST /auth/login")
+        self.e.team(self.anna, "sync")
+        doc = json.loads(git(self.e.origin, "show", "team-sync:rooms/hackathon/agents/anna-api.json"))
+        ready = [c for c in doc["changes"] if c.get("kind") == "ready"]
+        self.assertEqual(len(ready), 1)
+        self.assertEqual(ready[0]["breaking"], False)
+        self.assertEqual(ready[0]["text"], "Authorization is ready: POST /auth/login")
+
+    def test_announce_observer_refused(self):
+        self.e.team(self.sanya, "join", "hackathon", "--as", "obs", "--role", "observer")
+        p = self.e.team(self.sanya, "announce", "x ready", check=False)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("read-only", p.stderr)
+
+    def test_announce_secret_and_length_guard(self):
+        self.e.team(self.sanya, "join", "hackathon", "--as", "frontend")
+        p = self.e.team(self.sanya, "announce", "use token=hunter2hunter2", check=False)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("secret", p.stderr)
+        p = self.e.team(self.sanya, "announce", "x" * 500, check=False)
+        self.assertEqual(p.returncode, 1)
+
+    def test_announce_digest_shows_ready_not_breaking(self):
+        self.join_all()
+        self.e.hook(self.sanya, "session-start", {})
+        self.e.hook(self.anna, "session-start", {})
+        self.e.team(self.anna, "announce", "Authorization is ready: POST /auth/login")
+        self.e.team(self.sanya, "sync")
+        text = ctx_text(self.e.hook(self.sanya, "prompt", {"prompt": "hi"}))
+        self.assertIn("* READY from anna-api: Authorization is ready", text)
+        self.assertNotIn("!! BREAKING", text)
+        self.assertIn("tell your human in one line at the start of your answer", text)
+
+    def test_announce_briefing_lists_recent_announcements_even_offline(self):
+        self.join_all()
+        self.e.team(self.anna, "announce", "Authorization is ready: POST /auth/login")
+        self.e.hook(self.anna, "session-end", {})
+        self.e.team(self.sanya, "sync")
+        text = ctx_text(self.e.hook(self.sanya, "session-start", {}))
+        self.assertIn("Available from the team (announced):", text)
+        self.assertIn("Authorization is ready: POST /auth/login", text)
+        self.assertIn("anna-api", text)
+
+    def test_announce_older_than_7_days_not_in_briefing(self):
+        old = {"TEAM_SYNC_NOW": "2020-01-01T00:00:00Z"}
+        self.e.team(self.anna, "join", "hackathon", "--as", "api", **old)
+        self.e.team(self.anna, "announce", "Authorization is ready", **old)
+        self.e.team(self.sanya, "join", "hackathon", "--as", "frontend")
+        self.e.team(self.sanya, "sync")
+        text = ctx_text(self.e.hook(self.sanya, "session-start", {}))
+        self.assertNotIn("Available from the team (announced):", text)
+
+    def test_announce_shown_in_status(self):
+        self.join_all()
+        self.e.team(self.anna, "announce", "Authorization is ready: POST /auth/login")
+        self.e.team(self.sanya, "sync")
+        out = self.e.team(self.sanya, "status").stdout
+        self.assertIn("ready: Authorization is ready: POST /auth/login", out)
 
     def test_fresh_items_count_as_recent(self):
         # an age of exactly 0 s must not be treated as "unknown/ancient"

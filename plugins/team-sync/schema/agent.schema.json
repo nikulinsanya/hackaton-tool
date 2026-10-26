@@ -36,7 +36,12 @@
     "learnings": { "type": "array", "items": { "$ref": "#/$defs/item" } },
     "changes": {
       "type": "array",
-      "items": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "breaking": { "type": "boolean" } } }] }
+      "items": {
+        "allOf": [
+          { "$ref": "#/$defs/item" },
+          { "properties": { "breaking": { "type": "boolean" }, "kind": { "enum": ["ready"] } } }
+        ]
+      }
     },
     "asks": {
       "type": "array",

@@ -9,7 +9,7 @@ architecture and `PLAN.md` for what to do next. Start with PLAN.md Milestone 1.
 - `plugins/team-sync/scripts/team.py`: the whole engine. CLI + hook handlers. One file on purpose.
 - `plugins/team-sync/hooks/hooks.json`: wires hook events to `team.py hook <event>`.
 - `plugins/team-sync/skills/team-protocol/SKILL.md`: what agents publish and how they react. Behaviour changes usually belong here, not in code.
-- `plugins/team-sync/skills/{join,leave,team,handoff,start}`: user slash commands.
+- `plugins/team-sync/skills/{join,leave,team,handoff,start,announce}`: user slash commands.
 - `tests/test_team.py`: end-to-end tests with real git repos in a temp dir.
 - `tests/test_sessions.py`: session simulator driven through `hooks.json`, like a real Claude Code session.
 - `tools/sandbox.sh`: manual playground for real Claude Code sessions.

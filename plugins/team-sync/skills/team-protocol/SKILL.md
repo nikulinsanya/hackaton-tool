@@ -42,6 +42,7 @@ Write at these moments, not on every edit. Keep every entry short (one sentence,
 | You figured out something non-obvious others would hit too | `team learn "<fact>"` |
 | A convention is agreed with your human ("we use zod") | `team decide "<convention>"` |
 | You changed something others may depend on (API, schema, shared util, env var) | `team change "<what changed>"` add `--breaking` if callers must adapt |
+| You finished something other agents can use (an API, component, migration, shared util) | `team announce "<what is ready + how to use it + where>"` (or suggest `/team-sync:announce` to your human) |
 | You need something from another agent | `team ask <agent-id> "<request>"` (or `all`) |
 | Someone asked you | `team reply <their-id>#<ask-id> "<answer>"` add `--done` when delivered |
 | Your own ask was satisfied | `team close <ask-id>` |
@@ -59,6 +60,7 @@ Three levels: **silent**, **tell the user**, **stop and ask the user**.
 | LEARNING from another agent | **Silent.** Use it when relevant (e.g. "staging needs VPN"). |
 | DECISION | **Silent, follow it.** If your current code or plan contradicts it, **tell the user**. |
 | CHANGE (not breaking) | **Silent**, unless it touches code you are editing right now - then tell the user. |
+| READY (something another agent finished) | **Tell the user** in one line at the start of your next answer. If your current task needs it, use it as described (no need to ask the announcing agent first). Don't start unrelated work because of it. |
 | BREAKING CHANGE | **Always tell the user**, even if you believe you're unaffected: start your answer with a one-line warning (who changed what), then a quick impact check (grep this repo for the affected symbol/route/field; list where it's used in code you work on, or say none found). Propose the adaptation; don't apply it unless your human agrees. |
 | ASK addressed to you | **Tell the user** at the next natural pause, with your proposed answer. Reply with `team reply` once they agree. Do not silently start large work for another agent. |
 | Reply to your ask | Continue the blocked work; `team close <id>` if done; `team update --unblock` if you were blocked. |

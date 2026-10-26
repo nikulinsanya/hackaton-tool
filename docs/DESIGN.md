@@ -39,6 +39,9 @@ A dedicated branch (default `team-sync`) in the project repo:
 README.md
 rooms/<room>/room.json                 {"name", "goal", "created", "updated", "updated_by"}
 rooms/<room>/agents/<agent-id>.json    one status file per agent, see plugins/team-sync/schema/agent.schema.json
+                                        (a `changes` item with `kind: "ready"` is an announcement
+                                        of something finished and usable by other agents; it is
+                                        never breaking, and a v0.3 reader shows it as a plain change)
 rooms/<room>/config/<writer-id>.json   one room-config file per writer, see §10 and schema/room-config.schema.json
 ```
 
@@ -108,7 +111,7 @@ Known limitation: two Claude sessions in the *same* worktree share one identity.
 | Hook | Handler | Does |
 |---|---|---|
 | SessionStart (startup/resume/clear/compact) | `session-start` | mark online, forced sync, inject **briefing** (who's active, open asks for me, decisions, breaking changes, CLI cheat sheet) |
-| UserPromptSubmit | `prompt` | throttled sync, heartbeat, inject **digest** of changes since this session last looked. If the session has no state yet (joined mid-session) inject the briefing instead |
+| UserPromptSubmit | `prompt` | throttled sync, heartbeat, inject **digest** of changes since this session last looked, including READY announcements (`* READY from <agent>: <text>`) with an instruction to tell the human and use it if the task needs it. If the session has no state yet (joined mid-session) inject the briefing instead |
 | PreToolUse Edit/Write/MultiEdit/NotebookEdit | `pre-edit` | no network; compare the target path with every online agent's touching list (all rooms). On overlap: `warn` (default: a note in the agent's context, edit proceeds) once per area per session, or `ask` / `deny` |
 | PreToolUse Bash | `pre-bash` | auto-approve plain calls of the team CLI (exact script path, no shell metacharacters), so agents can report without a permission prompt. A `room` call that touches `policy.*` (set/unset), or uses `--from` with a template that has a `policy` block (or can't be read), is an explicit exception: it returns `ask` instead, because a policy change affects every agent in the room. Everything else goes through normal permissions |
 | PostToolUse Edit/Write/…/Bash | `post-tool` | record the edited path as `auto` touch (re-stamped at most every 10 min), throttled sync, append the path to the current turn's edit list. No digest (v0.3): `digest_interval_sec` is kept as a documented no-op for compatibility |
@@ -133,7 +136,7 @@ learning, decision, (breaking) change, ask/reply, done + handoff.
 | Level | Signals |
 |---|---|
 | Silent | learnings, decisions (follow them), non-breaking changes, stale agents |
-| Tell the human | breaking change - always, even if seemingly unaffected: a one-line warning plus a quick impact check (grep the affected symbol/route/field in this repo), proposing but not applying the adaptation; ask addressed to me; my plan contradicts a decision; someone blocked on me; an overlap warning (`overlap_action=warn`, the default) |
+| Tell the human | breaking change - always, even if seemingly unaffected: a one-line warning plus a quick impact check (grep the affected symbol/route/field in this repo), proposing but not applying the adaptation; a READY announcement (what another agent finished) - one line at the start of the next answer, used as described if the current task needs it, with no need to ask the announcing agent first; ask addressed to me; my plan contradicts a decision; someone blocked on me; an overlap warning (`overlap_action=warn`, the default) |
 | Stop and ask the human | edit overlaps another active agent's area under `overlap_action=ask`/`deny` (enforced by the PreToolUse hook) |
 
 At the end of a turn where I edited files, the Stop hook also reminds me (once) to decide
@@ -184,6 +187,9 @@ policy. See §10.2.
 - Two sessions in one worktree share an identity.
 - `ask` once-per-area: if the human denies an edit, a retry of the same area in the same session is not held again (the agent is told; the protocol forbids retrying).
 - Branch history grows by one small commit per write. A squash/compaction job is on the roadmap.
+- Each list in a status file keeps the last `max_items` (20) entries. Announcements share the
+  `changes` list, so an agent that posts 20 more changes within a week pushes its own announcement
+  out of teammates' briefings (raise `max_items` if that happens).
 
 ## 10. Room configuration (v0.2)
 

@@ -38,7 +38,7 @@ plugins/team-sync/
   hooks/hooks.json                     SessionStart, UserPromptSubmit, Pre/PostToolUse, Stop, SessionEnd
   scripts/team.py                      the whole engine: CLI + hook handlers (stdlib Python 3.8+)
   skills/team-protocol/SKILL.md        when to write, how to react (model-invoked)
-  skills/{join,leave,team,handoff,start}/  /team-sync:join, :leave, :team, :handoff, :start
+  skills/{join,leave,team,handoff,start,announce}/  /team-sync:join, :leave, :team, :handoff, :start, :announce
   schema/agent.schema.json             status file schema
   schema/room-config.schema.json       room config file schema
 examples/                              settings to drop into a project repo, a sample room template
@@ -53,7 +53,7 @@ CLAUDE.md                              guide for Claude Code working on this rep
 ## Try it in 2 minutes (no install)
 
 ```bash
-python3 -m unittest discover -s tests          # 46 end-to-end tests
+python3 -m unittest discover -s tests          # 55 end-to-end tests
 bash tools/sandbox.sh                          # prints 3 commands to start 3 agents
 ```
 
@@ -95,7 +95,7 @@ Requirements: git ≥ 2.20, python3 ≥ 3.8 (macOS: comes with the Xcode command
 team join <room> [--as NAME] [--role member|observer]    team leave | whoami | doctor
 team status [--all] [--json]                             team sync
 team update [--status idle|in_progress|blocked|done] [--working-on T] [--blocked-on T] [--unblock] [--handoff T]
-team learn T | decide T | change T [--breaking]
+team learn T | decide T | change T [--breaking] | announce T
 team ask <agent-id|all> T | reply <agent>#<ask> T [--done] | close <ask-id>
 team claim <path>... [--note T] | release <path>... | release --all | check <path>...
 team room [show] [--room R] [--json]                      team room --goal T          (legacy, still works)
