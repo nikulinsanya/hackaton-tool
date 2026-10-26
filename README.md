@@ -71,8 +71,8 @@ key by key: the entry with the highest logical clock wins. Anna changed the goal
 seen Sanya's version, so her entry carries clock 2 and wins, even if her laptop's clock runs
 behind. Changes reach every agent once, in its next digest.
 
-The diagrams' source is [`docs/how-it-works.html`](docs/how-it-works.html); regenerate the
-images with `python3 tools/render-diagrams.py`.
+The diagrams' source is [`docs/how-it-works.html`](docs/how-it-works.html). After changing it,
+ask Claude in this repo to *render the diagrams* (or run `/render-diagrams`).
 
 ## Starting a hackathon
 
@@ -81,12 +81,14 @@ images with `python3 tools/render-diagrams.py`.
    /team-sync:start hackathon --from examples/project/hackathon.json
    ```
    Running it again on a configured room shows the room and offers to join or edit instead.
-2. **Every participant** just launches their agents in the room, one per worktree:
+2. **Every participant** starts Claude Code with the plugin, one agent per worktree, and joins:
    ```bash
-   CLAUDE_TEAM_ROOM=hackathon claude -w frontend --plugin-dir <stable checkout>/plugins/team-sync
-   # or, inside a running session:
+   claude -w frontend --plugin-dir <stable checkout>/plugins/team-sync
+   ```
+   ```
    /team-sync:join hackathon --as frontend
    ```
+   Or put the room in the launch and skip the join: `CLAUDE_TEAM_ROOM=hackathon claude -w frontend --plugin-dir …`.
    Point `--plugin-dir` at a stable checkout (e.g. `main`), not the agent's own worktree, so an
    agent never runs its own half-edited engine.
 3. **Anyone** checks the room with `/team-sync:team`. Agents launched without a room stay invisible.
@@ -105,16 +107,37 @@ room *policy*, because that affects everyone in the room.
 | `/team-sync:handoff` | developer | write a handoff note for whoever continues this work |
 | `/team-sync:leave` | anyone | take this agent out of the room |
 
+## Talk to your agent
+
+Once an agent is in a room, ask in plain words. It knows the team commands from its briefing.
+
+| You say | Your agent |
+|---|---|
+| "Who's in the room and what are they doing?" | shows the room, like `/team-sync:team` |
+| "I'm blocked until the API schema is merged." | marks itself blocked, with the reason |
+| "Claim src/auth/, I'm refactoring it." | claims the folder, so others get a note before editing it |
+| "Ask anna-api for a test fixture for /session." | sends the ask; the answer shows up in a later reply |
+| "Tell the team we use zod for validation." | records a team decision every agent follows |
+| "Authorization is ready." | announces it with a how-to, like `/team-sync:announce` |
+| "Set the room goal to *demo at 17:00*." | updates the room configuration for everyone |
+| "I'm done for today, write a handoff." | writes a handoff note, like `/team-sync:handoff` |
+
+Most of this also happens without being asked: the agent reports its task when it starts,
+announces breaking changes and finished work, and answers asks addressed to it.
+
 ## Use it in a real project
 
 1. The tool lives at `git@gitlab.com:nikulinsanya/hackaton-tool.git` (private; you need read access).
 2. In the project repo, copy `examples/project/claude-settings.json` to `.claude/settings.json` and optionally `.team-sync.json`, and commit. Everyone who opens the project in Claude Code gets the plugin offered.
-   Or per person: `claude plugin marketplace add https://gitlab.com/nikulinsanya/hackaton-tool.git && claude plugin install team-sync@smartdodos`.
-3. Opt agents in with `CLAUDE_TEAM_ROOM=<room>` (plus `CLAUDE_TEAM_AGENT=<name>`, which defaults to the worktree folder name) or `/team-sync:join`.
+   Or per person, inside Claude Code: `/plugin marketplace add https://gitlab.com/nikulinsanya/hackaton-tool.git`, then `/plugin install team-sync@smartdodos`.
+3. Opt agents in with `/team-sync:join <room> --as <name>` (or `CLAUDE_TEAM_ROOM=<room>` at launch; the name defaults to the worktree folder).
 
 Requirements: git ≥ 2.20, python3 ≥ 3.8 (macOS: comes with the Xcode command line tools, which git needs anyway). Windows is untested.
 
-## CLI
+<details>
+<summary><b>Under the hood: the team CLI your agent runs</b></summary>
+
+You never need to type these; agents run them for you. They are useful for scripts and debugging.
 
 ```
 team join <room> [--as NAME] [--role member|observer]    team leave | whoami | doctor
@@ -136,6 +159,8 @@ team room export [--room R]                               team init [--local|--r
 `breaking_check` - default on, changing any of these needs a human's approval), or any custom
 field name.
 
+</details>
+
 ## Repo layout
 
 ```
@@ -153,6 +178,7 @@ docs/DESIGN.md                         architecture, data model, sync, reaction 
 docs/how-it-works.html                 source of the diagrams above
 docs/images/                           rendered diagrams
 tools/render-diagrams.py               renders docs/how-it-works.html to docs/images/ (needs Chrome)
+.claude/skills/render-diagrams/       "render the diagrams": render, check each image, fix collisions
 tools/sandbox.sh                       local playground: origin + 2 clones + worktree
 tests/test_team.py                     end-to-end tests (multi-clone, multi-worktree)
 tests/test_sessions.py                 session simulator driven through hooks.json
@@ -162,11 +188,16 @@ CLAUDE.md                              guide for Claude Code working on this rep
 
 ## Development
 
-```bash
-python3 -m unittest discover -s tests          # 56 end-to-end tests, ~2.5 min
-claude plugin validate .                       # marketplace + plugin manifests
-claude --plugin-dir plugins/team-sync          # run Claude Code with the local plugin
-python3 tools/render-diagrams.py               # after editing docs/how-it-works.html
-```
+Open Claude Code in this repo (`claude --plugin-dir plugins/team-sync` to also run the local
+plugin) and ask:
 
-See `CLAUDE.md` for the rules (stdlib only, hooks never break a session, single writer per file).
+| Ask Claude | What it does |
+|---|---|
+| "Run the tests." | the 56 end-to-end tests (about 2.5 minutes) |
+| "Validate the plugin." | checks the marketplace and plugin manifests |
+| "Render the diagrams." | renders `docs/how-it-works.html` to `docs/images/`, checks each image for collisions and fixes them (`/render-diagrams`) |
+| "Set up a sandbox to try it." | builds a throwaway origin with two clones and a worktree (`tools/sandbox.sh`) |
+
+The first time, Claude Code asks to run the skill and its script; pick "Yes, and don't ask again".
+`CLAUDE.md` tells Claude the exact commands and the rules (stdlib only, hooks never break a
+session, single writer per file).
