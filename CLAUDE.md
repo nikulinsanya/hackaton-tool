@@ -13,6 +13,8 @@ architecture and `PLAN.md` for what to do next. Start with PLAN.md Milestone 1.
 - `tests/test_team.py`: end-to-end tests with real git repos in a temp dir.
 - `tests/test_sessions.py`: session simulator driven through `hooks.json`, like a real Claude Code session.
 - `tools/sandbox.sh`: manual playground for real Claude Code sessions.
+- `docs/how-it-works.html` + `tools/render-diagrams.py`: diagram source and the script that renders
+  `docs/images/` for the README. Re-render after changing behaviour the diagrams show.
 
 ## Commands
 

@@ -1,0 +1,629 @@
+<title>How team-sync Works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;600;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F5F8;
+    --surface: #FFFFFF;
+    --ink: #17202B;
+    --muted: #5B687A;
+    --line: #A7B1C0;
+    --faint: #E2E7EE;
+    --blue: #2356C2;
+    --blue-soft: #E4ECFB;
+    --amber: #A85A06;
+    --amber-soft: #FBEBD5;
+    --sans: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #10141A;
+      --surface: #19202A;
+      --ink: #E2E7EF;
+      --muted: #96A2B4;
+      --line: #4B5667;
+      --faint: #262E3A;
+      --blue: #7CA4FF;
+      --blue-soft: #1C2943;
+      --amber: #F0A54C;
+      --amber-soft: #3A2914;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #10141A;
+    --surface: #19202A;
+    --ink: #E2E7EF;
+    --muted: #96A2B4;
+    --line: #4B5667;
+    --faint: #262E3A;
+    --blue: #7CA4FF;
+    --blue-soft: #1C2943;
+    --amber: #F0A54C;
+    --amber-soft: #3A2914;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+  }
+  .page {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 40px 56px;
+    display: grid;
+    gap: 48px;
+  }
+  header { display: grid; gap: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    letter-spacing: .02em;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(30px, 5vw, 44px);
+    line-height: 1.1;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  h2 {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.25;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  p { margin: 0; max-width: 66ch; }
+  .lede { font-size: 18px; color: var(--ink); }
+  .lede em { font-style: normal; color: var(--blue); font-weight: 600; }
+  code {
+    font-family: var(--mono);
+    font-size: .88em;
+    background: var(--faint);
+    padding: 1px 5px;
+    border-radius: 4px;
+    overflow-wrap: anywhere;
+  }
+  section { display: grid; gap: 14px; }
+
+  figure { margin: 0; display: grid; gap: 10px; }
+  .frame {
+    background: var(--surface);
+    border: 1px solid var(--faint);
+    border-radius: 10px;
+    padding: 12px;
+    overflow-x: auto;
+  }
+  .frame svg { display: block; width: 100%; min-width: 760px; height: auto; }
+  figcaption { font-size: 14.5px; color: var(--muted); max-width: 78ch; }
+
+  /* diagram vocabulary (styles live on the page, not inside the SVGs) */
+  .fig text { font-family: var(--sans); font-size: 12px; fill: var(--ink); }
+  .fig .t-b { font-weight: 600; font-size: 13px; }
+  .fig .t-m { fill: var(--muted); font-size: 11.5px; }
+  .fig .mono { font-family: var(--mono); font-size: 11px; }
+  .fig .lbl { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; fill: var(--muted); }
+  .fig .blue-t { fill: var(--blue); }
+  .fig .amber-t { fill: var(--amber); }
+  .fig .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+  .fig .box-quiet { fill: var(--bg); stroke: var(--faint); stroke-width: 1.2; }
+  .fig .box-blue { fill: var(--blue-soft); stroke: var(--blue); stroke-width: 1.2; }
+  .fig .box-amber { fill: var(--amber-soft); stroke: var(--amber); stroke-width: 1.4; }
+  .fig .container { fill: none; stroke: var(--line); stroke-width: 1; }
+  .fig .wire { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+  .fig .wire-blue { fill: none; stroke: var(--blue); stroke-width: 1.6; }
+  .fig .wire-amber { fill: none; stroke: var(--amber); stroke-width: 1.6; }
+  .fig .dashed { stroke-dasharray: 4 4; }
+  .fig .dim { opacity: .5; }
+  .fig .strike { stroke: var(--muted); stroke-width: 1.2; }
+  .fig .mk-muted { fill: var(--muted); }
+  .fig .mk-blue { fill: var(--blue); }
+  .fig .mk-amber { fill: var(--amber); }
+
+  ol.steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 12px;
+    counter-reset: step;
+    max-width: 78ch;
+  }
+  ol.steps li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 2px 10px;
+  }
+  ol.steps li::before {
+    content: counter(step);
+    grid-row: span 2;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--blue);
+    border: 1px solid var(--blue);
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    margin-top: 1px;
+  }
+  .who { font-weight: 600; }
+  .cmd {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px solid var(--faint);
+    border-radius: 6px;
+    padding: 6px 10px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  footer {
+    border-top: 1px solid var(--faint);
+    padding-top: 16px;
+    font-size: 13.5px;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 24px;
+  }
+  footer span { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+  @media (max-width: 480px) {
+    .page { gap: 36px; padding-block: 28px 40px; }
+    .lede { font-size: 17px; }
+  }
+</style>
+
+<main class="page">
+  <header>
+    <div class="eyebrow">team-sync 0.4.0 · Claude Code plugin</div>
+    <h1>How team-sync works</h1>
+    <p class="lede">Claude Code agents that join a room share what they are doing through <em>one git branch</em> in the repo you already use. No server, no database: each agent writes its own small status file, hooks keep everyone briefed, edits into someone else's area are flagged, and breaking changes reach every developer as a warning. No approval dialogs.</p>
+  </header>
+
+  <section>
+    <h2>Where the shared state lives</h2>
+    <p>The <code>team-sync</code> branch is never checked out. Agents write to it through a private index and an atomic ref swap, so your working tree and <code>main</code> are never touched.</p>
+    <figure>
+      <div class="frame">
+        <svg class="fig" viewBox="0 0 1000 440" role="img" aria-label="Agents on one laptop share the team-sync ref through the common .git and see each other at once; laptops sync through origin at most once a minute; every agent writes only its own file.">
+          <defs>
+            <marker id="f1-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-blue"/></marker>
+          </defs>
+
+          <!-- Sanya's laptop -->
+          <rect class="container" x="16" y="16" width="320" height="408" rx="10"/>
+          <text class="lbl" x="32" y="42">Sanya's laptop</text>
+          <text class="t-m" x="32" y="60">one clone · three worktrees</text>
+
+          <rect class="box" x="32" y="80" width="90" height="64" rx="6"/>
+          <text class="t-b" x="77" y="107" text-anchor="middle">frontend</text>
+          <text class="t-m" x="77" y="125" text-anchor="middle">main checkout</text>
+
+          <rect class="box" x="131" y="80" width="90" height="64" rx="6"/>
+          <text class="t-b" x="176" y="107" text-anchor="middle">tests</text>
+          <text class="t-m" x="176" y="125" text-anchor="middle">worktree</text>
+
+          <g class="dim">
+            <rect class="box dashed" x="230" y="80" width="90" height="64" rx="6"/>
+            <text class="t-b" x="275" y="107" text-anchor="middle">not in room</text>
+            <text class="t-m" x="275" y="125" text-anchor="middle">worktree</text>
+          </g>
+          <text class="t-m" x="275" y="168" text-anchor="middle">invisible:</text>
+          <text class="t-m" x="275" y="183" text-anchor="middle">hooks stay silent</text>
+
+          <line class="wire-blue" x1="77" y1="144" x2="77" y2="246" marker-end="url(#f1-blue)"/>
+          <line class="wire-blue" x1="176" y1="144" x2="176" y2="246" marker-end="url(#f1-blue)"/>
+          <text class="t-m" x="126.5" y="190" text-anchor="middle">writes its</text>
+          <text class="t-m" x="126.5" y="205" text-anchor="middle">own file</text>
+
+          <rect class="box-blue" x="32" y="250" width="288" height="84" rx="6"/>
+          <text class="t-b" x="48" y="276">.git, shared by all worktrees</text>
+          <text class="mono blue-t" x="48" y="298">refs/heads/team-sync</text>
+          <text class="t-m" x="48" y="318">one small commit per write</text>
+
+          <text x="176" y="368" text-anchor="middle">Same laptop: agents see each</text>
+          <text x="176" y="385" text-anchor="middle">other's writes immediately.</text>
+          <text class="t-m" x="176" y="404" text-anchor="middle">No network involved.</text>
+
+          <!-- middle: branch contents + origin -->
+          <rect class="box" x="392" y="16" width="216" height="196" rx="8"/>
+          <text class="lbl" x="408" y="40">On the branch</text>
+          <text class="mono" x="408" y="64">rooms/hackathon/</text>
+          <text class="mono" x="422" y="84">room.json</text>
+          <text class="mono" x="422" y="104">config/sanya.json</text>
+          <text class="mono" x="422" y="124">agents/</text>
+          <text class="mono blue-t" x="436" y="144">sanya-frontend.json</text>
+          <text class="mono blue-t" x="436" y="164">sanya-tests.json</text>
+          <text class="mono blue-t" x="436" y="184">anna-api.json</text>
+
+          <line class="wire dashed" x1="500" y1="212" x2="500" y2="250"/>
+          <text class="t-m" x="508" y="236">holds</text>
+
+          <rect class="box-blue" x="420" y="250" width="160" height="84" rx="6"/>
+          <text class="t-b" x="500" y="277" text-anchor="middle">origin</text>
+          <text class="t-m" x="500" y="295" text-anchor="middle">GitLab, private</text>
+          <text class="mono blue-t" x="500" y="317" text-anchor="middle">team-sync</text>
+
+          <line class="wire-blue" x1="324" y1="292" x2="416" y2="292" marker-start="url(#f1-blue)" marker-end="url(#f1-blue)"/>
+          <text class="t-m" x="370" y="282" text-anchor="middle">fetch · push</text>
+          <text class="t-m" x="370" y="311" text-anchor="middle">≤ 60 s</text>
+
+          <line class="wire-blue" x1="584" y1="292" x2="676" y2="292" marker-start="url(#f1-blue)" marker-end="url(#f1-blue)"/>
+          <text class="t-m" x="630" y="282" text-anchor="middle">fetch · push</text>
+          <text class="t-m" x="630" y="311" text-anchor="middle">≤ 60 s</text>
+
+          <!-- Anna's laptop -->
+          <rect class="container" x="664" y="16" width="320" height="408" rx="10"/>
+          <text class="lbl" x="680" y="42">Anna's laptop</text>
+          <text class="t-m" x="680" y="60">another clone</text>
+
+          <rect class="box" x="779" y="80" width="90" height="64" rx="6"/>
+          <text class="t-b" x="824" y="107" text-anchor="middle">api</text>
+          <text class="t-m" x="824" y="125" text-anchor="middle">main checkout</text>
+
+          <line class="wire-blue" x1="824" y1="144" x2="824" y2="246" marker-end="url(#f1-blue)"/>
+          <text class="t-m" x="834" y="190">writes its</text>
+          <text class="t-m" x="834" y="205">own file</text>
+
+          <rect class="box-blue" x="680" y="250" width="288" height="84" rx="6"/>
+          <text class="t-b" x="696" y="276">.git</text>
+          <text class="mono blue-t" x="696" y="298">refs/heads/team-sync</text>
+          <text class="t-m" x="696" y="318">merged file by file on sync</text>
+
+          <text x="824" y="368" text-anchor="middle">Other laptops catch up on</text>
+          <text x="824" y="385" text-anchor="middle">the next sync.</text>
+          <text class="t-m" x="824" y="404" text-anchor="middle">Files never conflict: one writer each.</text>
+        </svg>
+      </div>
+      <figcaption>Each agent writes only its own status file. Worktrees of one clone share refs, so agents on the same laptop see each other's writes right away. Other laptops sync through origin at most once a minute, and immediately on session start and end and on explicit commands. An agent outside the room writes nothing and sees nothing.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>One agent session, hook by hook</h2>
+    <p>Hooks do the plumbing on every session event. The agent's only job is to say what it is doing and to react to others, using the <code>team</code> CLI. Nothing interrupts it in the middle of a task.</p>
+    <figure>
+      <div class="frame">
+        <svg class="fig" viewBox="0 0 1000 350" role="img" aria-label="Across a session, hooks inject the briefing, a digest on each prompt, an overlap note, and at the end of each turn breaking-change warnings plus an announce check; they write only the agent's own file, and the edit check never touches the network.">
+          <defs>
+            <marker id="f2-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-muted"/></marker>
+            <marker id="f2-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-blue"/></marker>
+            <marker id="f2-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-amber"/></marker>
+          </defs>
+
+          <text class="lbl" x="16" y="68">Agent sees</text>
+          <text class="lbl" x="16" y="162">Hook</text>
+          <text class="lbl" x="16" y="266">Branch</text>
+          <text class="lbl" x="16" y="326">Network</text>
+
+          <line class="wire" x1="104" y1="158" x2="990" y2="158" marker-end="url(#f2-muted)"/>
+
+          <!-- what the agent receives -->
+          <rect class="box-quiet" x="110" y="48" width="114" height="32" rx="16"/>
+          <text x="167" y="68" text-anchor="middle">briefing</text>
+          <rect class="box-quiet" x="235" y="48" width="114" height="32" rx="16"/>
+          <text x="292" y="68" text-anchor="middle">digest of changes</text>
+          <rect class="box-quiet" x="360" y="48" width="114" height="32" rx="16"/>
+          <text x="417" y="68" text-anchor="middle">overlap note</text>
+          <rect class="box-quiet" x="610" y="48" width="114" height="32" rx="16"/>
+          <text x="667" y="68" text-anchor="middle">no prompt needed</text>
+          <rect class="box-amber" x="732" y="38" width="120" height="46" rx="12"/>
+          <text class="amber-t" x="792" y="57" text-anchor="middle">breaking warnings</text>
+          <text class="amber-t" x="792" y="74" text-anchor="middle">+ announce check</text>
+
+          <line class="wire" x1="167" y1="134" x2="167" y2="84" marker-end="url(#f2-muted)"/>
+          <line class="wire" x1="292" y1="134" x2="292" y2="84" marker-end="url(#f2-muted)"/>
+          <line class="wire" x1="417" y1="134" x2="417" y2="84" marker-end="url(#f2-muted)"/>
+          <line class="wire" x1="667" y1="134" x2="667" y2="84" marker-end="url(#f2-muted)"/>
+          <line class="wire-amber" x1="792" y1="134" x2="792" y2="88" marker-end="url(#f2-amber)"/>
+
+          <!-- hook events -->
+          <rect class="box" x="110" y="136" width="114" height="44" rx="6"/>
+          <text class="mono" x="167" y="162" text-anchor="middle">SessionStart</text>
+          <rect class="box" x="235" y="136" width="114" height="44" rx="6"/>
+          <text class="mono" x="292" y="162" text-anchor="middle" style="font-size:10px">UserPromptSubmit</text>
+          <rect class="box" x="360" y="136" width="114" height="44" rx="6"/>
+          <text class="mono" x="417" y="155" text-anchor="middle">PreToolUse</text>
+          <text class="mono t-m" x="417" y="171" text-anchor="middle">Edit</text>
+          <rect class="box" x="485" y="136" width="114" height="44" rx="6"/>
+          <text class="mono" x="542" y="162" text-anchor="middle">PostToolUse</text>
+          <rect class="box" x="610" y="136" width="114" height="44" rx="6"/>
+          <text class="mono" x="667" y="162" text-anchor="middle">Bash: team CLI</text>
+          <rect class="box-amber" x="735" y="136" width="114" height="44" rx="6"/>
+          <text class="mono" x="792" y="155" text-anchor="middle">Stop</text>
+          <text class="mono t-m" x="792" y="171" text-anchor="middle">end of turn</text>
+          <rect class="box" x="860" y="136" width="114" height="44" rx="6"/>
+          <text class="mono" x="917" y="162" text-anchor="middle">SessionEnd</text>
+
+          <!-- branch lane -->
+          <rect class="box-blue" x="104" y="236" width="886" height="50" rx="6"/>
+          <line class="wire-blue" x1="167" y1="180" x2="167" y2="232" marker-end="url(#f2-blue)"/>
+          <line class="wire-blue" x1="292" y1="180" x2="292" y2="232" marker-end="url(#f2-blue)"/>
+          <line class="wire dashed" x1="417" y1="236" x2="417" y2="184" marker-end="url(#f2-muted)"/>
+          <line class="wire-blue" x1="542" y1="180" x2="542" y2="232" marker-end="url(#f2-blue)"/>
+          <line class="wire-blue" x1="667" y1="180" x2="667" y2="232" marker-end="url(#f2-blue)"/>
+          <line class="wire dashed" x1="792" y1="236" x2="792" y2="184" marker-end="url(#f2-muted)"/>
+          <line class="wire-blue" x1="917" y1="180" x2="917" y2="232" marker-end="url(#f2-blue)"/>
+          <text class="blue-t" x="167" y="266" text-anchor="middle">marks online</text>
+          <text class="blue-t" x="292" y="266" text-anchor="middle">heartbeat</text>
+          <text class="t-m" x="417" y="266" text-anchor="middle">reads touch lists</text>
+          <text class="blue-t" x="542" y="266" text-anchor="middle">records edited file</text>
+          <text class="blue-t" x="667" y="266" text-anchor="middle">publishes status</text>
+          <text class="t-m" x="792" y="266" text-anchor="middle">reads new changes</text>
+          <text class="blue-t" x="917" y="266" text-anchor="middle">marks offline</text>
+
+          <!-- network -->
+          <text class="mono t-m" x="167" y="326" text-anchor="middle">sync now</text>
+          <text class="mono t-m" x="292" y="326" text-anchor="middle">sync ≤ 60 s</text>
+          <text class="mono t-m" x="417" y="326" text-anchor="middle">none · ~0.2 s</text>
+          <text class="mono t-m" x="542" y="326" text-anchor="middle">sync ≤ 60 s</text>
+          <text class="mono t-m" x="667" y="326" text-anchor="middle">sync now</text>
+          <text class="mono t-m" x="792" y="326" text-anchor="middle">sync ≤ 60 s</text>
+          <text class="mono t-m" x="917" y="326" text-anchor="middle">sync now</text>
+        </svg>
+      </div>
+      <figcaption>Upward arrows put text into the agent's context; downward arrows write the agent's own file on the branch. News arrives with your next prompt. When the agent finishes a turn, the Stop check adds warnings for breaking changes that came in meanwhile and asks whether its own edits broke anything for others. Calls to the team CLI need no permission prompt.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>A breaking change, end to end</h2>
+    <p>This is what the room is for: whoever breaks a shared interface says so, and every other developer hears about it in their agent's next answer, with a check of where their code is affected.</p>
+    <figure>
+      <div class="frame">
+        <svg class="fig" viewBox="0 0 1000 296" role="img" aria-label="anna-api edits getUser, its end-of-turn check prompts it to announce the breaking change, the announcement syncs through the branch, and sanya-frontend opens its next answer with a warning and an impact check.">
+          <defs>
+            <marker id="f5-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-muted"/></marker>
+            <marker id="f5-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-blue"/></marker>
+          </defs>
+
+          <!-- sender -->
+          <text class="lbl" x="16" y="26">anna-api changes shared code</text>
+          <rect class="box" x="16" y="40" width="320" height="60" rx="6"/>
+          <text class="t-b" x="32" y="66">edits getUser()</text>
+          <text class="mono" x="32" y="86">src/auth/user.ts</text>
+          <line class="wire" x1="176" y1="100" x2="176" y2="124" marker-end="url(#f5-muted)"/>
+          <rect class="box-amber" x="16" y="128" width="320" height="60" rx="6"/>
+          <text class="t-b" x="32" y="154">end-of-turn check</text>
+          <text class="t-m" x="32" y="174">asks: did this break anything for others?</text>
+          <line class="wire" x1="176" y1="188" x2="176" y2="212" marker-end="url(#f5-muted)"/>
+          <rect class="box" x="16" y="216" width="320" height="60" rx="6"/>
+          <text class="t-b" x="32" y="242">announces it</text>
+          <text class="mono" x="32" y="262">change "getUser() returns null" --breaking</text>
+
+          <!-- branch -->
+          <line class="wire-blue" x1="336" y1="246" x2="396" y2="246" marker-end="url(#f5-blue)"/>
+          <text class="t-m" x="366" y="238" text-anchor="middle">writes</text>
+          <rect class="box-blue" x="400" y="206" width="200" height="80" rx="6"/>
+          <text class="t-b" x="500" y="232" text-anchor="middle">team-sync branch</text>
+          <text class="mono blue-t" x="500" y="252" text-anchor="middle">anna-api.json</text>
+          <text class="t-m" x="500" y="271" text-anchor="middle">changes: 1 breaking</text>
+          <path class="wire-blue" d="M600,246 H632 V70 H660" marker-end="url(#f5-blue)"/>
+          <text class="t-m" x="626" y="152" text-anchor="end">sync</text>
+          <text class="t-m" x="626" y="167" text-anchor="end">≤ 60 s</text>
+
+          <!-- receivers -->
+          <text class="lbl" x="664" y="26">every other agent passes it on</text>
+          <rect class="box" x="664" y="40" width="320" height="60" rx="6"/>
+          <text class="t-b" x="680" y="66">its next answer</text>
+          <text class="t-m" x="680" y="86">or the end of the task it is busy with</text>
+          <line class="wire" x1="824" y1="100" x2="824" y2="124" marker-end="url(#f5-muted)"/>
+          <rect class="box-amber" x="664" y="128" width="320" height="60" rx="6"/>
+          <text class="t-b" x="680" y="154">opens with a warning</text>
+          <text class="mono amber-t" x="680" y="174">⚠ anna-api: getUser() returns null</text>
+          <line class="wire" x1="824" y1="188" x2="824" y2="212" marker-end="url(#f5-muted)"/>
+          <rect class="box" x="664" y="216" width="320" height="60" rx="6"/>
+          <text class="t-b" x="680" y="242">impact check</text>
+          <text class="t-m" x="680" y="262">LoginForm.tsx:12 uses it · fix proposed</text>
+        </svg>
+      </div>
+      <figcaption>The agent that changed shared code is asked at the end of its turn whether it broke anything, and announces it. Every other agent in the room tells its developer at the start of its next answer, or at the end of the task it is busy with, and searches the repo for the places that use the changed code. It proposes the fix; you decide whether to apply it.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Announcing what's ready</h2>
+    <p>When something others can build on is done, its developer says so once. The agent turns that into a short how-to, and the room carries it to everyone.</p>
+    <figure>
+      <div class="frame">
+        <svg class="fig" viewBox="0 0 1000 250" role="img" aria-label="anna runs /team-sync:announce, her agent drafts a how-to and stores it on the branch as a ready item; every other agent mentions it in its next answer, and agents that start later see it in their briefing.">
+          <defs>
+            <marker id="f6-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-muted"/></marker>
+            <marker id="f6-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-blue"/></marker>
+          </defs>
+
+          <text class="lbl" x="16" y="76">anna, when auth is done</text>
+          <rect class="box" x="16" y="86" width="250" height="78" rx="6"/>
+          <text class="mono" x="32" y="118">/team-sync:announce</text>
+          <text class="t-m" x="32" y="142">Authorization is ready</text>
+          <line class="wire" x1="266" y1="125" x2="296" y2="125" marker-end="url(#f6-muted)"/>
+
+          <rect class="box" x="300" y="86" width="230" height="78" rx="6"/>
+          <text class="t-b" x="316" y="116">agent drafts the how-to</text>
+          <text class="t-m" x="316" y="136">endpoint · client · env vars</text>
+          <text class="t-m" x="316" y="152">merged to main or not</text>
+          <line class="wire-blue" x1="530" y1="125" x2="560" y2="125" marker-end="url(#f6-blue)"/>
+
+          <rect class="box-blue" x="564" y="86" width="170" height="78" rx="6"/>
+          <text class="t-b" x="649" y="116" text-anchor="middle">team-sync branch</text>
+          <text class="mono blue-t" x="649" y="138" text-anchor="middle">change, kind ready</text>
+
+          <path class="wire-blue" d="M734,125 H756 V59 H776" marker-end="url(#f6-blue)"/>
+          <path class="wire-blue" d="M756,125 V191 H776" marker-end="url(#f6-blue)"/>
+
+          <rect class="box" x="780" y="20" width="204" height="78" rx="6"/>
+          <text class="t-b" x="796" y="48">every agent's next answer</text>
+          <text class="t-m" x="796" y="68">one line, plus how it will</text>
+          <text class="t-m" x="796" y="84">use it if its task needs it</text>
+
+          <rect class="box" x="780" y="152" width="204" height="78" rx="6"/>
+          <text class="t-b" x="796" y="180">briefing of later agents</text>
+          <text class="t-m" x="796" y="200">"Available from the team"</text>
+          <text class="t-m" x="796" y="216">for 7 days</text>
+        </svg>
+      </div>
+      <figcaption>A developer, or an agent that just finished something others can use, announces it once. Every other agent mentions it in one line at the start of its next answer and uses it if its task needs it. Agents that start later find it in their briefing. If the new thing also changes an existing interface, a separate breaking-change warning goes out as well.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Two agents reach for the same code</h2>
+    <p>Before every edit, the hook compares the file with what every online agent is touching: files it recently edited, or folders it claimed. By default the edit goes through and the agent tells you who else is there.</p>
+    <figure>
+      <div class="frame">
+        <svg class="fig" viewBox="0 0 960 316" role="img" aria-label="An edit into another agent's claimed folder runs a local check; by default (warn) it goes through with a note the agent passes on to you; ask, if a room configures it, holds the edit for approval.">
+          <defs>
+            <marker id="f3-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-muted"/></marker>
+          </defs>
+
+          <rect class="box" x="16" y="122" width="176" height="56" rx="6"/>
+          <text class="t-b" x="104" y="146" text-anchor="middle">frontend edits</text>
+          <text class="mono" x="104" y="166" text-anchor="middle">src/auth/login.ts</text>
+          <line class="wire" x1="192" y1="150" x2="236" y2="150" marker-end="url(#f3-muted)"/>
+
+          <rect class="box" x="240" y="106" width="196" height="88" rx="6"/>
+          <text class="t-b" x="338" y="132" text-anchor="middle">pre-edit hook</text>
+          <text class="t-m" x="338" y="151" text-anchor="middle">checks online agents' areas</text>
+          <text class="mono amber-t" x="338" y="174" text-anchor="middle">anna-api claimed src/auth/</text>
+
+          <path class="wire" d="M436,150 H472 V64 H514" marker-end="url(#f3-muted)"/>
+          <path class="wire dashed" d="M472,150 V240 H514" marker-end="url(#f3-muted)"/>
+
+          <!-- warn lane (default) -->
+          <text class="lbl" x="520" y="26">warn · default</text>
+          <rect class="box" x="520" y="36" width="184" height="56" rx="6"/>
+          <text class="t-b" x="612" y="60" text-anchor="middle">note to the agent</text>
+          <text class="t-m" x="612" y="78" text-anchor="middle">it tells you in one line</text>
+          <line class="wire" x1="704" y1="64" x2="766" y2="64" marker-end="url(#f3-muted)"/>
+          <text class="t-m" x="737" y="56" text-anchor="middle">continues</text>
+          <rect class="box" x="770" y="36" width="174" height="56" rx="6"/>
+          <text class="t-b" x="857" y="60" text-anchor="middle">edit applied</text>
+          <text class="t-m" x="857" y="78" text-anchor="middle">kept minimal, in handoff</text>
+
+          <!-- ask lane (optional) -->
+          <text class="lbl" x="520" y="202">ask · only if a room sets it</text>
+          <rect class="box-amber" x="520" y="212" width="184" height="56" rx="6"/>
+          <text class="t-b" x="612" y="236" text-anchor="middle">edit held</text>
+          <text class="t-m" x="612" y="254" text-anchor="middle">you approve or decline</text>
+          <text class="t-m" x="612" y="290" text-anchor="middle">decline: the agent offers to</text>
+          <text class="t-m" x="612" y="305" text-anchor="middle">ask anna-api first</text>
+          <line class="wire" x1="704" y1="240" x2="766" y2="240" marker-end="url(#f3-muted)"/>
+          <text class="t-m" x="737" y="232" text-anchor="middle">approve</text>
+          <rect class="box" x="770" y="212" width="174" height="56" rx="6"/>
+          <text class="t-b" x="857" y="236" text-anchor="middle">edit applied</text>
+          <text class="t-m" x="857" y="254" text-anchor="middle">asked once per area</text>
+        </svg>
+      </div>
+      <figcaption>Both modes run the same local check. <code>warn</code> is the default: no dialog, one line in the agent's answer, and the agent stops only before it would refactor that area. <code>ask</code> (approval dialog) and <code>deny</code> (edit blocked) remain available as room policy.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Room configuration: anyone edits, nobody collides</h2>
+    <p>Title, goal, description, rules, policy and any custom field you add live on the same branch. Any member can change them, but each writes only its own config file, and the room resolves them key by key.</p>
+    <figure>
+      <div class="frame">
+        <svg class="fig" viewBox="0 0 960 312" role="img" aria-label="Each writer keeps its own room config file; per key, the entry with the highest logical clock wins, and the merged room config reaches every agent's briefing and digest.">
+          <defs>
+            <marker id="f4-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-muted"/></marker>
+            <marker id="f4-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-blue"/></marker>
+          </defs>
+
+          <!-- writer files -->
+          <rect class="box" x="16" y="16" width="400" height="106" rx="6"/>
+          <text class="mono blue-t" x="30" y="38">config/sanya.json</text>
+          <text class="mono" x="30" y="62">title</text>
+          <text x="196" y="62">Hackathon</text>
+          <text class="mono t-m" x="402" y="62" text-anchor="end">clock 1</text>
+          <g class="dim">
+            <text class="mono" x="30" y="84">goal</text>
+            <text x="196" y="84">Onboarding demo</text>
+            <text class="mono t-m" x="402" y="84" text-anchor="end">clock 1</text>
+          </g>
+          <line class="strike" x1="192" y1="80" x2="296" y2="80"/>
+          <text class="mono" x="30" y="106">standup</text>
+          <text x="196" y="106">every 2 h</text>
+          <text class="mono t-m" x="402" y="106" text-anchor="end">clock 1</text>
+
+          <rect class="box" x="16" y="136" width="400" height="84" rx="6"/>
+          <text class="mono blue-t" x="30" y="158">config/anna-api.json</text>
+          <text class="mono" x="30" y="182">goal</text>
+          <text class="t-b" x="196" y="182">Onboarding demo + API</text>
+          <text class="mono blue-t" x="402" y="182" text-anchor="end">clock 2</text>
+          <text class="mono" x="30" y="204">rule.anna-api.r1</text>
+          <text x="196" y="204">Announce breaking APIs</text>
+          <text class="mono t-m" x="402" y="204" text-anchor="end">clock 1</text>
+
+          <rect class="box" x="16" y="234" width="400" height="62" rx="6"/>
+          <text class="mono blue-t" x="30" y="256">config/sanya-frontend.json</text>
+          <text class="mono" x="30" y="280">demo_time</text>
+          <text x="196" y="280">17:00</text>
+          <text class="mono t-m" x="402" y="280" text-anchor="end">clock 1</text>
+
+          <!-- resolve -->
+          <path class="wire" d="M432,24 H444 V288 H432"/>
+          <line class="wire" x1="444" y1="156" x2="554" y2="156" marker-end="url(#f4-muted)"/>
+          <text class="t-m" x="502" y="132" text-anchor="middle">per key, the</text>
+          <text class="t-m" x="502" y="147" text-anchor="middle">highest clock wins</text>
+
+          <rect class="box-blue" x="560" y="66" width="272" height="180" rx="8"/>
+          <text class="lbl" x="576" y="90">Room config</text>
+          <text class="mono" x="576" y="116">title</text>
+          <text x="656" y="116">Hackathon</text>
+          <text class="mono" x="576" y="140">goal</text>
+          <text class="t-b" x="656" y="140">Onboarding demo + API</text>
+          <text class="mono" x="576" y="164">standup</text>
+          <text x="656" y="164">every 2 h</text>
+          <text class="mono" x="576" y="188">rule</text>
+          <text x="656" y="188">Announce breaking APIs</text>
+          <text class="mono" x="576" y="212">demo_time</text>
+          <text x="656" y="212">17:00</text>
+
+          <line class="wire-blue" x1="832" y1="156" x2="858" y2="156" marker-end="url(#f4-blue)"/>
+          <rect class="box" x="862" y="116" width="92" height="80" rx="6"/>
+          <text class="t-b" x="908" y="146" text-anchor="middle">briefing</text>
+          <text class="t-b" x="908" y="164" text-anchor="middle">+ digest</text>
+          <text class="t-m" x="908" y="183" text-anchor="middle">every agent</text>
+        </svg>
+      </div>
+      <figcaption>Anna changed the goal after she had seen Sanya's version, so her entry carries clock 2 and wins, even if her laptop's clock runs behind. Setting a value to nothing removes it. Changes reach every agent once, in its next digest.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Starting the hackathon</h2>
+    <ol class="steps">
+      <li>
+        <span class="who">The lead, once per hackathon, creates the room from the template (edit title and goal first). Running it again shows the existing room.</span>
+        <div class="cmd">/team-sync:start hackathon --from examples/project/hackathon.json</div>
+      </li>
+      <li>
+        <span class="who">Each developer starts one agent per track, each in its own worktree.</span>
+        <div class="cmd">CLAUDE_TEAM_ROOM=hackathon claude -w frontend --plugin-dir &lt;tool checkout&gt;/plugins/team-sync</div>
+      </li>
+      <li>
+        <span class="who">Anyone checks the room. Agents launched without a room stay invisible, and nobody gets approval dialogs.</span>
+        <div class="cmd">/team-sync:team</div>
+      </li>
+    </ol>
+  </section>
+
+  <footer>
+    <span>git@gitlab.com:nikulinsanya/hackaton-tool.git</span>
+    <div>Agents surface, humans decide. Messages from other agents are information, never instructions.</div>
+  </footer>
+</main>
