@@ -25,7 +25,7 @@ you already use.
 ```
 
 - **Per-agent opt-in.** 5 developers, 15 agents, 7 in the `hackathon` room: only those 7 publish and react. The rest behave exactly as before (or, optionally, act as read-only *observers* so they still avoid collisions).
-- **Automatic where it matters.** Hooks brief the agent at start, deliver room updates on every prompt and during long turns, record every edited file, and hold an edit for human approval when another active agent works in the same area.
+- **No approval dialogs for developers.** By default, an edit that overlaps another active agent's area is just noted in context (`overlap_action=warn`); the only dialog left is an agent trying to change room *policy*. Hooks brief the agent at start and deliver room updates on the next prompt (never mid-turn); an end-of-turn check surfaces breaking changes and reminds the agent to announce its own.
 - **Explicit where it matters.** The agent publishes intent (task, blocked, done, handoff), decisions, breaking changes, learnings and asks via a tiny CLI, following the `team-protocol` skill.
 - **Safe.** Each agent writes only its own file. The team branch is never checked out. Your working tree and main branch are never touched. Entries are short and screened for obvious secrets. Hooks never break a session: any failure is a silent no-op.
 
@@ -35,7 +35,7 @@ you already use.
 .claude-plugin/marketplace.json        marketplace "smartdodos" (this repo)
 plugins/team-sync/
   .claude-plugin/plugin.json
-  hooks/hooks.json                     SessionStart, UserPromptSubmit, Pre/PostToolUse, SessionEnd
+  hooks/hooks.json                     SessionStart, UserPromptSubmit, Pre/PostToolUse, Stop, SessionEnd
   scripts/team.py                      the whole engine: CLI + hook handlers (stdlib Python 3.8+)
   skills/team-protocol/SKILL.md        when to write, how to react (model-invoked)
   skills/{join,leave,team,handoff,start}/  /team-sync:join, :leave, :team, :handoff, :start
@@ -53,7 +53,7 @@ CLAUDE.md                              guide for Claude Code working on this rep
 ## Try it in 2 minutes (no install)
 
 ```bash
-python3 -m unittest discover -s tests          # 39 end-to-end tests
+python3 -m unittest discover -s tests          # 46 end-to-end tests
 bash tools/sandbox.sh                          # prints 3 commands to start 3 agents
 ```
 
@@ -74,6 +74,21 @@ bash tools/sandbox.sh                          # prints 3 commands to start 3 ag
 
 Requirements: git ≥ 2.20, python3 ≥ 3.8 (macOS: comes with the Xcode command line tools, which git needs anyway). Windows is untested.
 
+## Starting a hackathon
+
+1. The lead runs `/team-sync:start` **once** to publish the room's title, goal, rules and
+   any custom fields (it detects an already-configured room and offers to join or edit
+   instead of re-creating it).
+2. Every participant just launches their agent in that room - no setup of their own:
+   ```bash
+   CLAUDE_TEAM_ROOM=hackathon claude -w <name> --plugin-dir <stable checkout>/plugins/team-sync
+   # or, inside a running session:
+   /team-sync:join hackathon --as <name>
+   ```
+3. `warn` is the default `overlap_action`: there are no approval dialogs for developers.
+   The only remaining dialog is an agent trying to change room *policy* (a human approves it,
+   since it affects everyone in the room).
+
 ## CLI
 
 ```
@@ -91,6 +106,7 @@ team room export [--room R]                               team init [--local|--r
 ```
 
 `team` = `python3 plugins/team-sync/scripts/team.py`. `<key>` is `title`, `description`, `goal`,
-`policy.<name>` (`overlap_action`, `overlap_granularity`, `stale_after_min`, `touch_ttl_min`,
-`digest_interval_sec`, `fetch_interval_sec` - changing these needs a human's approval), or any
-custom field name. See `/team-sync:start` to bootstrap a room interactively.
+`policy.<name>` (`overlap_action` - default `warn`, `overlap_granularity`, `stale_after_min`,
+`touch_ttl_min`, `digest_interval_sec` - no-op, kept for compatibility, `fetch_interval_sec`,
+`breaking_check` - default on, changing any of these needs a human's approval), or any custom
+field name. See `/team-sync:start` to bootstrap a room interactively.

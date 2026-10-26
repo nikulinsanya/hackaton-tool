@@ -7,9 +7,6 @@
     "Breaking API changes must be announced with `team change ... --breaking`",
     "Answer asks addressed to you before starting new work"
   ],
-  "policy": {
-    "overlap_action": "warn"
-  },
   "fields": {
     "demo_time": "17:00",
     "tracks": "dashboard,task-board,commit-guard"

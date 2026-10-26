@@ -5,6 +5,6 @@
   "stale_after_min": 30,
   "touch_ttl_min": 120,
   "overlap_granularity": "dir",
-  "overlap_action": "ask",
+  "overlap_action": "warn",
   "auto_observe": null
 }

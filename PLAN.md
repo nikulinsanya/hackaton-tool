@@ -30,18 +30,9 @@ Only the interactive-UI parts remain unverified. Fix what breaks, add a test for
 - [x] Overlap edit is held, and the agent reacts per protocol (headless).
 - [x] Agent publishes status and replies through the CLI without prompts (headless).
 - [x] SessionEnd marks offline (headless).
-- [ ] Interactive: run `bash tools/sandbox.sh`, start the 3 printed sessions, and check that the "ask"
-      approval dialog shows the team-sync reason and that approving lets the edit through.
-- [ ] Interactive: `/team-sync:team` renders (the `` !`...` `` line runs, `$ARGUMENTS` substituted),
-      `/team-sync:join` works mid-session and the next prompt gets the briefing.
-- [ ] Digest arrives mid-turn during a long task (PostToolUse `additionalContext`). Simulated in
-      `test_mid_turn_digest`; still to see in a real session (`team room set policy.digest_interval_sec 20`
-      in the sandbox so you don't wait 2 minutes).
-- [ ] Interactive (v0.2): `/team-sync:start` interviews the lead and creates the room; the other agents
-      show the title/goal/rules on their next prompt.
-- [ ] Interactive (v0.2): with `policy.overlap_action=warn` the overlapping edit goes through, the agent
-      mentions it in one line and keeps working; setting the policy from inside a session prompts you.
-- [x] Run the tests on macOS with stock `python3` (3.9) and git.
+- [-] Interactive sandbox checks (`tools/sandbox.sh`): **skipped** (Sanya, 2026-10-26). We verify in
+      the real repo at kickoff instead.
+- [-] Mid-turn digest: **dropped** in v0.3 (no updates in the middle of a task).
 - [x] Push this repo to `git@gitlab.com:nikulinsanya/hackaton-tool.git`. The hackathon dogfoods *this* repo, so everyone runs
       `claude --plugin-dir <stable checkout>/plugins/team-sync` (point it at main, not the agent's own
       worktree, so an agent never runs its own half-edited `team.py`). No marketplace install needed.
@@ -89,6 +80,33 @@ Only needed when team-sync is used in repos other than this one.
       in a project repo so teammates get the plugin offered automatically.
 - [ ] Decide marketplace name and hosting.
 
+## v0.3: no dialogs, breaking-change warnings (done)
+
+Decided (Sanya, 2026-10-26):
+- **No approval dialogs for developers.** `overlap_action` default becomes `warn` (built-in, not just the
+  hackathon room). `ask`/`deny` stay available as config.
+- **Breaking changes are always surfaced.** When another agent announces a breaking change, my agent
+  starts its next answer with a short warning (who changed what) plus a quick impact check (where this
+  repo uses it), and proposes the adaptation without applying it.
+- **No updates in the middle of a task.** PostToolUse no longer injects digests. Instead an
+  **end-of-turn check** (Stop hook) runs once per turn: it surfaces breaking changes that arrived during
+  the task, and, if this agent edited files, reminds it to announce anything breaking it introduced
+  (`team change ... --breaking`) before it answers. Config `breaking_check` (default on) turns the
+  self-check off.
+- **Setup is run once, by the lead:** `/team-sync:start` per hackathon. Participants only launch their
+  agents in the room. Running start again on a configured room shows it instead of re-creating it.
+- The only remaining dialog: an agent trying to change room *policy* (guard against a prompt-injected
+  agent switching checks off for everyone). `room create --from` asks only if the template has policy.
+
+- [x] Default `overlap_action=warn`; examples, docs and tests follow.
+- [x] PostToolUse: no digest; `digest_interval_sec` kept as a no-op for compatibility.
+- [x] Stop hook: end-of-turn check (incoming breaking changes + own-edit announce reminder), once per
+      turn, loop-safe (`stop_hook_active`); `breaking_check` config/policy key.
+- [x] Prompt digest and briefing instruct: warn + impact check for each breaking change.
+- [x] `pre-bash`: `--from` asks only when the template contains policy.
+- [x] `/team-sync:start` detects an already configured room.
+- [x] Tests, DESIGN.md, README, version 0.3.0.
+
 ## Milestone 2: hardening (good first hackathon tasks)
 
 | # | Item | Done when |
@@ -132,8 +150,7 @@ so they still get collision warnings.
 ## Hackathon day outline
 
 1. **Kickoff (30 min):** the lead runs `/team-sync:start hackathon --from examples/project/hackathon.json`
-   (edit title/goal first; it sets `policy.overlap_action=warn`), demo of v0 in the sandbox, tracks,
-   everyone joins the room.
+   once (edit title/goal first), demo of v0 in the sandbox, tracks, everyone joins the room.
 2. **Build blocks** with a 5-min standup every 2 h, run from `team status --all`. Did agents report? Any overlap warnings?
 3. **Freeze (1 h before end):** merge to main, `tests/` green.
 4. **Demo (10 min):** the script below.

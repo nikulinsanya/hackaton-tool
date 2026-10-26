@@ -34,7 +34,7 @@ import tempfile
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 SCHEMA = 1
 CONFIG_FILE = ".team-sync.json"
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -50,7 +50,7 @@ MAX_ACTIVE_RULES = 30
 # custom-field key syntax (anything else matching this isn't a DEFAULTS name)
 POLICY_ALLOWED = {
     "overlap_action", "overlap_granularity", "stale_after_min", "touch_ttl_min",
-    "digest_interval_sec", "fetch_interval_sec",
+    "digest_interval_sec", "fetch_interval_sec", "breaking_check",
 }
 RESERVED_FIELD_NAMES = {"branch", "remote", "auto_observe"}
 CUSTOM_KEY_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -64,10 +64,11 @@ DEFAULTS: Dict[str, Any] = {
     "stale_after_min": 30,        # no heartbeat for this long -> ignored
     "touch_ttl_min": 120,         # auto-recorded edits expire after this
     "overlap_granularity": "dir",  # "file" | "dir" (same directory counts)
-    "overlap_action": "ask",      # "ask" | "warn" | "deny"
+    "overlap_action": "warn",     # "ask" | "warn" | "deny"
     "auto_observe": None,         # room name: every session here observes it
-    "digest_interval_sec": 120,   # min seconds between mid-turn digests
+    "digest_interval_sec": 120,   # no-op, kept for backwards compatibility (v0.3: no mid-turn digests)
     "max_items": 20,              # per list (learnings, decisions, ...)
+    "breaking_check": True,       # end-of-turn reminder to announce your own breaking changes
 }
 
 SECRET_PATTERNS = [
@@ -83,6 +84,31 @@ SECRET_PATTERNS = [
 ]
 
 CMD = 'python3 "{}"'.format(os.path.abspath(__file__))
+
+BREAKING_IMPACT_INSTR = (
+    "For each BREAKING CHANGE above: start your answer with a one-line warning (who "
+    "changed what), then a quick impact check: search this repo for the affected "
+    "symbol, route or field and list the places in code you work on, or say none "
+    "found. Propose the adaptation; don't apply it unless your human agrees."
+)
+BREAKING_IMPACT_INSTR_SHORT = (
+    "For each: start with a one-line warning (who changed what), then a quick "
+    "impact check (grep the affected symbol/route/field); propose the adaptation, "
+    "don't apply it unless your human agrees."
+)
+STOP_INCOMING_INSTR = (
+    "Before you finish, add to your answer a one-line warning for each (who changed "
+    "what), then a quick impact check: search this repo for the affected symbol, "
+    "route or field and list the places in code you work on, or say none found. "
+    "Propose the adaptation; don't apply it unless your human agrees."
+)
+STOP_OWN_EDIT_INSTR = (
+    'If any of this changes behaviour other agents rely on (exported function '
+    'signature or return value, API route, schema or types, config or env var, '
+    'removed or renamed file), announce it now with `{} change "<what changed and '
+    'what callers must do>" --breaking` and mention it in your answer. If nothing '
+    "is breaking, finish normally and don't mention this check."
+).format(CMD)
 
 
 # --------------------------------------------------------------- utilities
@@ -661,6 +687,13 @@ def validate_policy_value(name: str, raw: Any) -> Any:
         if not 0 <= v <= 3600:
             raise TeamError("policy.{} must be between 0 and 3600".format(name))
         return v
+    if name == "breaking_check":
+        sv = s.lower()
+        if sv in ("true", "on", "1"):
+            return True
+        if sv in ("false", "off", "0"):
+            return False
+        raise TeamError("policy.breaking_check must be true/false (or on/off, 1/0)")
     raise TeamError("unknown policy {}".format(name))
 
 
@@ -1143,6 +1176,7 @@ def digest(ctx: Ctx, sess: Dict[str, Any]) -> List[str]:
     observer = ctx.ident["role"] == "observer"
     seen = sess.setdefault("seen", {})
     handoff_seen = sess.setdefault("handoff_seen", {})
+    shown = set(sess.get("breaking_shown") or [])  # already surfaced by the Stop hook
     lines: List[str] = config_digest(ctx, sess)
     for doc in ctx.room_docs():
         aid = doc["id"]
@@ -1182,6 +1216,9 @@ def digest(ctx: Ctx, sess: Dict[str, Any]) -> List[str]:
             return "{}:{}:{}".format(kind, it.get("id"), it.get("status", "")) in new
 
         for it in doc.get("changes") or []:
+            if it.get("breaking") and "{}|changes:{}:{}".format(
+                    aid, it.get("id"), it.get("status", "")) in shown:
+                continue
             if is_new("changes", it) and (it.get("breaking") or not observer):
                 tag = "!! BREAKING CHANGE" if it.get("breaking") else "> CHANGE"
                 lines.append("{} by {}: {}".format(tag, aid, it.get("text")))
@@ -1201,9 +1238,40 @@ def digest(ctx: Ctx, sess: Dict[str, Any]) -> List[str]:
         for it in doc.get("learnings") or []:
             if is_new("learnings", it):
                 lines.append("> LEARNING from {}: {}".format(aid, it.get("text")))
+    # every agent's items are in `seen` now, so the Stop hook's list can be dropped
+    sess["breaking_shown"] = []
     if len(lines) > MAX_DIGEST_LINES:
         extra = len(lines) - MAX_DIGEST_LINES
         lines = lines[:MAX_DIGEST_LINES] + ["... and {} more. Run: {} status".format(extra, CMD)]
+    return lines
+
+
+def breaking_digest(ctx: Ctx, sess: Dict[str, Any]) -> List[str]:
+    """For the Stop hook: breaking changes this session has not been shown yet.
+    Reuses digest()'s per-agent `seen` snapshot (so the next real digest() never
+    repeats these), but marks *only* the breaking-change items as seen, leaving
+    every other kind (asks, decisions, non-breaking changes, replies, learnings)
+    unseen for the next prompt's digest()."""
+    me = ctx.ident["id"]
+    seen = sess.setdefault("seen", {})
+    shown = set(sess.get("breaking_shown") or [])
+    lines: List[str] = []
+    for doc in ctx.room_docs():
+        aid = doc["id"]
+        if aid == me:
+            continue
+        prev_items = set((seen.get(aid) or {}).get("items") or [])
+        for it in doc.get("changes") or []:
+            if not it.get("breaking"):
+                continue
+            key = "changes:{}:{}".format(it.get("id"), it.get("status", ""))
+            if key in prev_items or "{}|{}".format(aid, key) in shown:
+                continue
+            lines.append("{}: {}".format(aid, it.get("text")))
+            shown.add("{}|{}".format(aid, key))
+    # Kept apart from `seen`, so the next digest() still reports everything else
+    # about these agents (e.g. "+ x joined") and only skips the items shown here.
+    sess["breaking_shown"] = sorted(shown)
     return lines
 
 
@@ -1306,6 +1374,7 @@ def briefing(ctx: Ctx) -> str:
     if breaking:
         L.append("Breaking changes in the last 24h (check if your code is affected):")
         L.extend("  - {} ({})".format(x.get("text"), aid) for aid, x in breaking)
+        L.append(BREAKING_IMPACT_INSTR_SHORT)
     if ident["role"] == "member":
         learn = [(d["id"], x) for d in others for x in d.get("learnings") or []]
         learn.sort(key=lambda p: str(p[1].get("at", "")))
@@ -1371,8 +1440,11 @@ def h_session_start(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _digest_text(ctx: Ctx, lines: List[str]) -> str:
-    return "[team-sync] Updates in room \"{}\":\n{}\nApply the team-protocol reaction rules.".format(
+    text = "[team-sync] Updates in room \"{}\":\n{}\nApply the team-protocol reaction rules.".format(
         ctx.ident["room"], "\n".join(lines))
+    if any(l.startswith("!! BREAKING CHANGE") for l in lines):
+        text += "\n\n" + BREAKING_IMPACT_INSTR
+    return text
 
 
 def h_prompt(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1391,6 +1463,7 @@ def h_prompt(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         lines = digest(ctx, sess)
         text = _digest_text(ctx, lines) if lines else None
     sess["last_digest"] = now_iso()
+    sess["turn"] = {"started": now_iso(), "edits": [], "checked": False}
     ctx.save_session(sid, sess)
     return hook_output("UserPromptSubmit", text) if text else None
 
@@ -1435,9 +1508,13 @@ def h_pre_edit(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def h_post_tool(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Records the edited path and throttled-syncs. No digest here (v0.3): updates
+    arrive on the next prompt, or at the end of the turn for breaking changes, via
+    the Stop hook."""
     ctx = Ctx(data.get("cwd"))
     if not ctx.ident:
         return None
+    rel = None
     if data.get("tool_name") in EDIT_TOOLS:
         rel = ctx.repo.rel(_tool_path(data) or "", base=data.get("cwd"))
         if rel and not rel.startswith(".git/"):
@@ -1445,18 +1522,64 @@ def h_post_tool(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             if record_touch(doc, rel) or doc.get("state") == "offline":
                 doc["state"] = "online"
                 ctx.save_me(doc, "touch " + rel, content=False, sync=False)
+        else:
+            rel = None
     ctx.store.sync()
     sid = str(data.get("session_id") or "default")
     sess = ctx.load_session(sid)
     if sess is None:
         return None
-    a = age_sec(sess.get("last_digest"))
-    if a is not None and a < float(ctx.cfg["digest_interval_sec"]):
+    if rel:
+        turn = sess.setdefault(
+            "turn", {"started": sess.get("started") or now_iso(), "edits": [], "checked": False})
+        edits = turn.setdefault("edits", [])
+        if rel not in edits:
+            edits.append(rel)
+            del edits[:-50]
+        ctx.save_session(sid, sess)
+    return None
+
+
+def h_stop(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """End-of-turn check, once per turn: surfaces breaking changes that arrived
+    during the task, and, if this session edited files, reminds it to announce
+    anything breaking before it answers. Returns a Stop-hook `block` with the
+    combined text, or None."""
+    ctx = Ctx(data.get("cwd"))
+    if not ctx.ident:
         return None
-    lines = digest(ctx, sess)
-    sess["last_digest"] = now_iso()
+    if data.get("stop_hook_active"):
+        return None
+    sid = str(data.get("session_id") or "default")
+    sess = ctx.load_session(sid)
+    if sess is None:
+        return None
+    turn = sess.get("turn")
+    if not turn or turn.get("checked"):
+        return None
+    ctx.store.sync()
+    parts: List[str] = []
+    breaking_lines = breaking_digest(ctx, sess)
+    if breaking_lines:
+        parts.append("Incoming breaking changes:\n" + "\n".join(
+            "- {}".format(l) for l in breaking_lines) + "\n\n" + STOP_INCOMING_INSTR)
+    if ctx.ident["role"] == "member" and ctx.cfg.get("breaking_check", True):
+        edits = turn.get("edits") or []
+        if edits:
+            started = turn.get("started") or sess.get("started") or ""
+            me_doc = ctx.load_me()
+            announced = any(str(c.get("at", "")) >= started for c in me_doc.get("changes") or [])
+            if not announced:
+                shown = edits[:5]
+                more = len(edits) - len(shown)
+                listing = ", ".join(shown) + (" (+{} more)".format(more) if more else "")
+                parts.append("You edited: {}\n{}".format(listing, STOP_OWN_EDIT_INSTR))
+    turn["checked"] = True
+    sess["turn"] = turn
     ctx.save_session(sid, sess)
-    return hook_output("PostToolUse", _digest_text(ctx, lines)) if lines else None
+    if parts:
+        return {"decision": "block", "reason": "[team-sync] " + "\n\n".join(parts)}
+    return None
 
 
 def h_session_end(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1476,10 +1599,13 @@ def h_session_end(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 SHELL_META = set(";&|<>`$\n\r\\")
 
 
-def _room_cmd_needs_human(argv: List[str]) -> bool:
-    """A `room` call that changes policy, or bootstraps from an uncontrolled file,
-    affects every agent in the room: a human must approve it, even though the rest
-    of the CLI is auto-approved."""
+def _room_cmd_needs_human(argv: List[str], cwd: Optional[str]) -> bool:
+    """A `room` call that changes policy affects every agent in the room: a human
+    must approve it, even though the rest of the CLI is auto-approved. A `room
+    create ... --from <file>` bootstrap only needs approval when the template
+    itself sets room policy (or can't be read/parsed at all, so we can't tell) -
+    a plain template (title/description/goal/rules/fields, no policy) is treated
+    like any other plain CLI call."""
     if not argv or argv[0] != "room":
         return False
     rest = argv[1:]
@@ -1489,7 +1615,17 @@ def _room_cmd_needs_human(argv: List[str]) -> bool:
     if sub in ("set", "unset") and len(rest) >= 2 and str(rest[1]).startswith("policy."):
         return True
     if sub == "create" and "--from" in rest:
-        return True
+        idx = rest.index("--from")
+        path = rest[idx + 1] if idx + 1 < len(rest) else None
+        if not path:
+            return True
+        full = path if os.path.isabs(path) else os.path.join(cwd or "", path)
+        data = read_json(full)
+        if not isinstance(data, dict):
+            return True  # unreadable/unparsable: can't tell, ask
+        if data.get("policy"):
+            return True
+        return False
     return False
 
 
@@ -1514,7 +1650,7 @@ def h_pre_bash(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 argv = shlex.split(cmd[len(prefix):])
             except ValueError:
                 argv = []
-            if _room_cmd_needs_human(argv):
+            if _room_cmd_needs_human(argv, data.get("cwd")):
                 return hook_output(
                     "PreToolUse", permissionDecision="ask",
                     permissionDecisionReason="team-sync: changing room policy affects every "
@@ -1530,6 +1666,7 @@ HOOKS = {
     "prompt": h_prompt,
     "pre-edit": h_pre_edit,
     "post-tool": h_post_tool,
+    "stop": h_stop,
     "session-end": h_session_end,
 }
 

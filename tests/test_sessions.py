@@ -88,6 +88,14 @@ class HookRunner:
         return out
 
     def _check_contract(self, event, out):
+        if event == "Stop":
+            # Stop uses the top-level Claude Code Stop-hook format, not hookSpecificOutput.
+            self_keys = set(out.keys())
+            assert self_keys == {"decision", "reason"}, out
+            assert out.get("decision") == "block", out
+            reason = out.get("reason")
+            assert isinstance(reason, str) and reason, out
+            return
         hso = out.get("hookSpecificOutput", {})
         assert hso.get("hookEventName") == event, (event, hso)
         ctx = hso.get("additionalContext")
@@ -220,6 +228,12 @@ class Session:
         cmd = 'python3 "{}" {}'.format(os.path.abspath(TEAM), " ".join(_q(a) for a in args))
         return self.bash(cmd, **kwargs)
 
+    def stop(self, stop_hook_active=False):
+        payload = self._payload("Stop", stop_hook_active=stop_hook_active)
+        out = self._first(self.runner.run("Stop", payload, self.cwd, self._env()))
+        reason = (out or {}).get("reason", "")
+        return Result(out, decision=(out or {}).get("decision"), reason=reason, context=reason)
+
     def end(self, reason="prompt_input_exit"):
         payload = self._payload("SessionEnd", reason=reason)
         out = self._first(self.runner.run("SessionEnd", payload, self.cwd, self._env()))
@@ -319,7 +333,7 @@ class SessionTests(unittest.TestCase):
 
     def test_demo_script_breaking_change_and_ask(self):
         for cwd in (self.sanya, self.sanya_tests, self.anna):
-            set_cfg(cwd, **FAST_CFG)
+            set_cfg(cwd, overlap_action="ask", **FAST_CFG)
         api = self.session(self.anna, "api-sess", CLAUDE_TEAM_ROOM="hackathon",
                            CLAUDE_TEAM_AGENT="api")
         frontend = self.session(self.sanya, "fe-sess", CLAUDE_TEAM_ROOM="hackathon",
@@ -370,12 +384,15 @@ class SessionTests(unittest.TestCase):
     # 3. --------------------------------------------------------- mid digest
 
     def test_mid_turn_digest(self):
+        # v0.3: PostToolUse never injects a digest; updates arrive on the next
+        # prompt (or, for breaking changes, at end of turn via the Stop hook).
         set_cfg(self.sanya, **FAST_CFG)
         set_cfg(self.anna, **FAST_CFG)
         frontend = self.session(self.sanya, "fe-long", CLAUDE_TEAM_ROOM="hackathon",
                                 CLAUDE_TEAM_AGENT="frontend")
         self.e.team(self.anna, "join", "hackathon", "--as", "api")
         frontend.start()
+        frontend.prompt("start")
 
         r1 = frontend.edit("src/api/routes.ts")
         self.assertEqual(r1.post_context, "")  # nothing new yet
@@ -384,11 +401,15 @@ class SessionTests(unittest.TestCase):
         self.e.team(self.anna, "sync")
 
         r2 = frontend.edit("src/auth/session.ts")
-        self.assertNotEqual(r2.post_context, "")
-        self.assertIn("renamed getUser to fetchUser", r2.post_context)
+        self.assertEqual(r2.post_context, "")  # still nothing mid-turn
 
-        r3 = frontend.edit("README.md")
-        self.assertEqual(r3.post_context, "")  # nothing new since r2
+        r3 = frontend.prompt("what changed?")
+        self.assertIn("renamed getUser to fetchUser", r3.context)
+
+        r4 = frontend.edit("README.md")
+        self.assertEqual(r4.post_context, "")
+        r5 = frontend.prompt("again?")
+        self.assertEqual(r5.context, "")  # nothing new since r3
 
     # 4. ---------------------------------------------- resume/compact/clear
 
@@ -572,12 +593,12 @@ class SessionTests(unittest.TestCase):
         d2 = frontend.prompt("again?")
         self.assertEqual(d2.context, "")
 
-        # ...and once mid-turn via PostToolUse
+        # config changes also never arrive mid-turn (v0.3): only on the next prompt
         api.team("room", "set", "title", "Hack Day 3")
         r1 = frontend.edit("src/api/routes.ts")
-        self.assertIn("ROOM: title = Hack Day 3 (by anna-api)", r1.post_context)
-        r2 = frontend.edit("README.md")
-        self.assertEqual(r2.post_context, "")
+        self.assertEqual(r1.post_context, "")
+        d3 = frontend.prompt("config change?")
+        self.assertIn("ROOM: title = Hack Day 3 (by anna-api)", d3.context)
 
     def test_room_pre_bash_asks_for_policy_and_from(self):
         set_cfg(self.sanya, **FAST_CFG)
@@ -588,13 +609,170 @@ class SessionTests(unittest.TestCase):
                                 approve=False).decision, "ask")
         self.assertEqual(s.team("room", "unset", "policy.overlap_action",
                                 approve=False).decision, "ask")
-        tmpl = os.path.join(self.e.tmp, "tmpl.json")
-        with open(tmpl, "w") as f:
-            json.dump({"title": "T"}, f)
-        self.assertEqual(s.team("room", "create", "x", "--from", tmpl, approve=False).decision,
+        missing = os.path.join(self.e.tmp, "missing.json")
+        self.assertEqual(s.team("room", "create", "x", "--from", missing, approve=False).decision,
                          "ask")
+        no_policy = os.path.join(self.e.tmp, "tmpl.json")
+        with open(no_policy, "w") as f:
+            json.dump({"title": "T"}, f)
+        self.assertEqual(s.team("room", "create", "x", "--from", no_policy).decision, "allow")
+        with_policy = os.path.join(self.e.tmp, "tmpl2.json")
+        with open(with_policy, "w") as f:
+            json.dump({"title": "T", "policy": {"overlap_action": "warn"}}, f)
+        self.assertEqual(s.team("room", "create", "x", "--from", with_policy,
+                                approve=False).decision, "ask")
         self.assertEqual(s.team("room", "set", "title", "X").decision, "allow")
         self.assertEqual(s.team("room", "rule", "add", "a rule").decision, "allow")
+
+    # 10a. --------------------------------------------------------- stop hook
+
+    def test_stop_hook_incoming_breaking_change(self):
+        set_cfg(self.sanya, **FAST_CFG)
+        set_cfg(self.anna, **FAST_CFG)
+        frontend = self.session(self.sanya, "fe-stop", CLAUDE_TEAM_ROOM="hackathon",
+                                CLAUDE_TEAM_AGENT="frontend")
+        api = self.session(self.anna, "api-stop", CLAUDE_TEAM_ROOM="hackathon",
+                           CLAUDE_TEAM_AGENT="api")
+        frontend.start()
+        api.start()
+
+        frontend.prompt("start task")
+        r = frontend.edit("src/auth/login.ts")
+        self.assertEqual(r.post_context, "")  # no mid-turn digest
+
+        api.team("change", "getUser() returns null", "--breaking")
+
+        r1 = frontend.stop()
+        self.assertEqual(r1.decision, "block")
+        self.assertIn("anna-api", r1.reason)
+        self.assertIn("impact check", r1.reason)
+
+        # loop-safe: Claude Code re-invokes Stop with stop_hook_active=True
+        r2 = frontend.stop(stop_hook_active=True)
+        self.assertIsNone(r2.raw)
+
+        # the breaking change is not repeated, but other items posted meanwhile are
+        api.team("learn", "staging needs VPN")
+        d = frontend.prompt("next")
+        self.assertNotIn("getUser", d.context)
+        self.assertIn("staging needs VPN", d.context)
+
+    def test_stop_hook_new_agent_still_announced_as_joined(self):
+        # a teammate whose very first visible action is a breaking change, surfaced at
+        # Stop: the next digest must still say they joined, without repeating the change
+        set_cfg(self.sanya, **FAST_CFG)
+        set_cfg(self.anna, **FAST_CFG)
+        frontend = self.session(self.sanya, "fe-new", CLAUDE_TEAM_ROOM="hackathon",
+                                CLAUDE_TEAM_AGENT="frontend")
+        frontend.start()
+        frontend.prompt("start task")
+        api = self.session(self.anna, "api-new", CLAUDE_TEAM_ROOM="hackathon",
+                           CLAUDE_TEAM_AGENT="api")
+        api.start()
+        api.team("change", "getUser() returns null", "--breaking")
+        r = frontend.stop()
+        self.assertIn("getUser() returns null", r.reason)
+        d = frontend.prompt("next")
+        self.assertIn("anna-api joined", d.context)
+        self.assertNotIn("getUser", d.context)
+
+    def test_stop_hook_own_edit_reminder(self):
+        set_cfg(self.sanya, **FAST_CFG)
+
+        s1 = self.session(self.sanya, "own-edit-1", CLAUDE_TEAM_ROOM="hackathon",
+                          CLAUDE_TEAM_AGENT="frontend1")
+        s1.start()
+        s1.prompt("task")
+        s1.edit("src/auth/login.ts")
+        r1 = s1.stop()
+        self.assertEqual(r1.decision, "block")
+        self.assertIn("src/auth/login.ts", r1.reason)
+        self.assertIn("--breaking", r1.reason)
+
+        # announcing the change before Stop suppresses the reminder
+        s2 = self.session(self.sanya, "own-edit-2", CLAUDE_TEAM_ROOM="hackathon",
+                          CLAUDE_TEAM_AGENT="frontend2")
+        s2.start()
+        s2.prompt("task")
+        s2.edit("src/auth/session.ts")
+        s2.team("change", "renamed helper", "--breaking")
+        r2 = s2.stop()
+        self.assertIsNone(r2.raw)
+
+        # no edits and nothing incoming -> None
+        s3 = self.session(self.sanya, "own-edit-3", CLAUDE_TEAM_ROOM="hackathon",
+                          CLAUDE_TEAM_AGENT="frontend3")
+        s3.start()
+        s3.prompt("task")
+        r3 = s3.stop()
+        self.assertIsNone(r3.raw)
+
+        # Stop runs only once per turn
+        s4 = self.session(self.sanya, "own-edit-4", CLAUDE_TEAM_ROOM="hackathon",
+                          CLAUDE_TEAM_AGENT="frontend4")
+        s4.start()
+        s4.prompt("task")
+        s4.edit("README.md")
+        r4a = s4.stop()
+        self.assertEqual(r4a.decision, "block")
+        r4b = s4.stop()
+        self.assertIsNone(r4b.raw)
+
+    def test_stop_hook_breaking_check_disabled(self):
+        set_cfg(self.sanya, **FAST_CFG)
+        set_cfg(self.anna, **FAST_CFG)
+        s = self.session(self.sanya, "bc-off", CLAUDE_TEAM_ROOM="hackathon",
+                         CLAUDE_TEAM_AGENT="frontend")
+        s.start()
+        s.team("room", "create", "hackathon", "--title", "T")
+        s.team("room", "set", "policy.breaking_check", "false")
+
+        s.prompt("task")
+        s.edit("src/auth/login.ts")
+        r1 = s.stop()
+        self.assertIsNone(r1.raw)  # own-edit reminder suppressed
+
+        # incoming breaking changes still work: announced *after* the next prompt's
+        # digest, so Stop (not the ordinary digest) is what surfaces it
+        api = self.session(self.anna, "api-bc", CLAUDE_TEAM_ROOM="hackathon",
+                           CLAUDE_TEAM_AGENT="api")
+        api.start()
+
+        s.prompt("next")
+        api.team("change", "x breaks", "--breaking")
+        s.edit("src/auth/session.ts")
+        r2 = s.stop()
+        self.assertEqual(r2.decision, "block")
+        self.assertIn("anna-api", r2.reason)
+        self.assertNotIn("--breaking", r2.reason)  # no own-edit reminder text
+
+    def test_stop_hook_observer_incoming_only(self):
+        set_cfg(self.sanya, **FAST_CFG)
+        set_cfg(self.anna, **FAST_CFG)
+        obs = self.session(self.sanya, "obs-sess", CLAUDE_TEAM_ROOM="hackathon",
+                           CLAUDE_TEAM_AGENT="watcher", CLAUDE_TEAM_ROLE="observer")
+        obs.start()
+        obs.prompt("task")
+        obs.edit("src/auth/login.ts")
+        r1 = obs.stop()
+        self.assertIsNone(r1.raw)  # observers are never reminded to announce changes
+
+        api = self.session(self.anna, "api-obs", CLAUDE_TEAM_ROOM="hackathon",
+                           CLAUDE_TEAM_AGENT="api")
+        api.start()
+
+        obs.prompt("next")
+        api.team("change", "breaks something", "--breaking")
+        obs.edit("README.md")
+        r2 = obs.stop()
+        self.assertEqual(r2.decision, "block")
+        self.assertIn("anna-api", r2.reason)
+
+    def test_stop_hook_not_joined(self):
+        s = self.session(self.sanya, "nj-sess")
+        s.prompt("hi")
+        r = s.stop()
+        self.assertIsNone(r.raw)
 
     # 10. --------------------------------------------------------- wiring
 
@@ -614,7 +792,7 @@ class SessionTests(unittest.TestCase):
                     self.assertIn(m.group(1), hook_names, "{} not a known hook handler".format(m.group(1)))
                 seen_events.add(event)
         self.assertEqual(seen_events, {"SessionStart", "UserPromptSubmit", "PreToolUse",
-                                       "PostToolUse", "SessionEnd"})
+                                       "PostToolUse", "Stop", "SessionEnd"})
 
         matchers = {entry.get("matcher") for entry in spec["hooks"]["PreToolUse"]}
         self.assertIn("Edit|Write|MultiEdit|NotebookEdit", matchers)

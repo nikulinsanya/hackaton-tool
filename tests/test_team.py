@@ -190,6 +190,8 @@ class TeamSyncTests(unittest.TestCase):
     # -------------------------------------------------------------- overlap
 
     def test_overlap_ask_once_then_quiet(self):
+        with open(os.path.join(self.sanya, ".team-sync.json"), "w") as f:
+            json.dump({"overlap_action": "ask"}, f)
         self.join_all()
         login = "src/auth/login.ts"
         self.e.hook(self.anna, "post-tool", {"tool_name": "Edit",
@@ -207,6 +209,19 @@ class TeamSyncTests(unittest.TestCase):
         # unrelated dir: no overlap
         payload["tool_input"]["file_path"] = os.path.join(self.sanya, "src/api/routes.ts")
         self.assertIsNone(self.e.hook(self.sanya, "pre-edit", payload))
+
+    def test_default_overlap_is_warn(self):
+        # no .team-sync.json, no room policy: overlap_action defaults to warn
+        self.join_all()
+        self.e.team(self.anna, "claim", "src/api")
+        self.e.team(self.sanya, "sync")
+        text = ctx_text(self.e.hook(self.sanya, "session-start", {}))
+        self.assertIn("on an overlap warning, tell your human in one line", text)
+        out = self.e.hook(self.sanya, "pre-edit", {"tool_name": "Edit", "tool_input": {
+            "file_path": os.path.join(self.sanya, "src/api/routes.ts")}})
+        hso = out["hookSpecificOutput"]
+        self.assertNotIn("permissionDecision", hso)  # not held
+        self.assertIn("anna-api", hso["additionalContext"])
 
     def test_claim_and_deny_mode(self):
         self.join_all()
@@ -251,6 +266,7 @@ class TeamSyncTests(unittest.TestCase):
         self.assertIn("ASK for you from anna-api [anna-api#a1]", text)
         self.assertIn("BREAKING", text)
         self.assertIn("DECISION", text)
+        self.assertIn("impact check", text)
         # second prompt: nothing new
         self.assertIsNone(self.e.hook(self.sanya, "prompt", {"prompt": "again"}))
         self.e.team(self.sanya, "reply", "anna-api#a1", "exported from src/schema.ts", "--done")
@@ -280,7 +296,7 @@ class TeamSyncTests(unittest.TestCase):
         self.e.team(self.anna, "join", "hackathon", "--as", "api")
         self.e.team(self.anna, "claim", "src/auth/")
         with open(os.path.join(self.sanya, ".team-sync.json"), "w") as f:
-            json.dump({"auto_observe": "hackathon"}, f)
+            json.dump({"auto_observe": "hackathon", "overlap_action": "ask"}, f)
         self.e.team(self.sanya, "sync")
         text = ctx_text(self.e.hook(self.sanya, "session-start", {}))
         self.assertIn("as observer", text)
@@ -414,9 +430,11 @@ class TeamSyncTests(unittest.TestCase):
         fails("room", "set", "overlap_action", "warn", needle="use policy.overlap_action")
         fails("room", "set", "policy.nope", "x", needle="not a room policy")
         fails("room", "set", "policy.overlap_action", "bogus", needle="ask|warn|deny")
+        fails("room", "set", "policy.breaking_check", "bogus", needle="true/false")
         fails("room", "set", "note", "password=hunter2hunter2", needle="secret")
         fails("room", "set", "description", "x" * 1001, needle="too long")
         self.e.team(self.sanya, "room", "set", "description", "x" * 1000)  # exactly at the limit
+        self.e.team(self.sanya, "room", "set", "policy.breaking_check", "false")
 
     def test_room_custom_field_and_rule_limits(self):
         # seed 29 of each through one template write, so the boundary itself is the
@@ -532,7 +550,11 @@ class TeamSyncTests(unittest.TestCase):
             return out and out["hookSpecificOutput"]["permissionDecision"]
         self.assertEqual(decide('python3 "{}" room set policy.overlap_action warn'.format(script)), "ask")
         self.assertEqual(decide('python3 "{}" room unset policy.overlap_action'.format(script)), "ask")
-        self.assertEqual(decide('python3 "{}" room create x --from f.json'.format(script)), "ask")
+        self.assertEqual(decide('python3 "{}" room create x --from f.json'.format(script)), "ask")  # missing file
+        no_policy = self._tmpl_path("nopolicy.json", {"title": "T"})
+        self.assertEqual(decide('python3 "{}" room create x --from {}'.format(script, no_policy)), "allow")
+        with_policy = self._tmpl_path("withpolicy.json", {"title": "T", "policy": {"overlap_action": "warn"}})
+        self.assertEqual(decide('python3 "{}" room create x --from {}'.format(script, with_policy)), "ask")
         self.assertEqual(decide('python3 "{}" room set title X'.format(script)), "allow")
         self.assertEqual(decide('python3 "{}" room rule add "hi"'.format(script)), "allow")
 

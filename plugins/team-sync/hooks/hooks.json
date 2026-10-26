@@ -1,5 +1,5 @@
 {
-  "description": "team-sync: brief the agent at start, deliver room updates, record edits, warn before overlapping edits. Every handler is a no-op unless this agent joined a room.",
+  "description": "team-sync: brief the agent at start, deliver room updates on the next prompt, record edits, warn before overlapping edits, and run an end-of-turn breaking-change check. Every handler is a no-op unless this agent joined a room.",
   "hooks": {
     "SessionStart": [
       {
@@ -52,6 +52,17 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/team.py\" hook post-tool",
+            "timeout": 25
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/team.py\" hook stop",
             "timeout": 25
           }
         ]

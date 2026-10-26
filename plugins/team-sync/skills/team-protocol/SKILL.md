@@ -11,9 +11,14 @@ joined the same **room** share a small status file each, stored on the `team-syn
 git branch. Hooks already do the plumbing for you:
 
 - **Session start**: you get a briefing (who is active, what they work on, open asks for you, decisions).
-- **Each prompt / periodically during long turns**: you get a digest of what changed in the room.
+- **Each prompt**: you get a digest of what changed in the room since you last looked. There are
+  no mid-turn updates.
 - **Every edit**: the file is recorded in your `touching` list automatically.
-- **Before every edit**: if another active agent is touching the same area, the edit is held for your human's approval.
+- **Before every edit**: if another active agent is touching the same area, the edit may be held
+  for your human's approval, or just noted, depending on room policy (see the overlap row below).
+- **End of turn (once, before you answer)**: an automatic check surfaces any breaking change that
+  arrived during the task, and, if you edited files, reminds you to announce anything breaking
+  before you finish.
 
 Your job is the part hooks cannot do: say **what** you are doing and **react** to others.
 
@@ -54,13 +59,14 @@ Three levels: **silent**, **tell the user**, **stop and ask the user**.
 | LEARNING from another agent | **Silent.** Use it when relevant (e.g. "staging needs VPN"). |
 | DECISION | **Silent, follow it.** If your current code or plan contradicts it, **tell the user**. |
 | CHANGE (not breaking) | **Silent**, unless it touches code you are editing right now - then tell the user. |
-| BREAKING CHANGE | Check whether your code uses it (grep). If yes, **tell the user** and propose the adaptation; adapt only after they pull the change and agree. |
+| BREAKING CHANGE | **Always tell the user**, even if you believe you're unaffected: start your answer with a one-line warning (who changed what), then a quick impact check (grep this repo for the affected symbol/route/field; list where it's used in code you work on, or say none found). Propose the adaptation; don't apply it unless your human agrees. |
 | ASK addressed to you | **Tell the user** at the next natural pause, with your proposed answer. Reply with `team reply` once they agree. Do not silently start large work for another agent. |
 | Reply to your ask | Continue the blocked work; `team close <id>` if done; `team update --unblock` if you were blocked. |
 | Edit held because of an overlap | **Stop and ask the user.** Explain who is working there and on what. Offer: (a) edit anyway, minimal change, (b) `team ask <agent> ...` to coordinate, (c) work around it. Never retry the edit through another tool (Bash, sed, etc.) to bypass the check. |
-| Overlap warning (edit not held; room policy `overlap_action=warn`) | **Tell the user** in one line who is working there, then continue with a minimal change and mention it in your handoff. Stop and ask before refactoring or rewriting that area. |
+| Overlap warning (edit not held; room policy `overlap_action=warn`, the default) | **Tell the user** in one line who is working there, then continue with a minimal change and mention it in your handoff. Stop and ask before refactoring or rewriting that area. |
 | An agent is blocked on something you own | **Tell the user**; it may be worth reprioritising. |
 | Agent stale/offline | Ignore its claims; mention it only if you depend on its work. |
+| You finish a task that changed shared code | Decide whether it's breaking (exported function signature/return value, API route, schema/types, config/env var, removed or renamed file) and announce it with `team change "<what changed and what callers must do>" --breaking`. The end-of-turn check reminds you if you edited files and haven't announced anything yet. |
 
 Rules that always hold:
 

@@ -21,7 +21,7 @@
         "properties": {
           "value": {
             "description": "the field's value; null means this key was unset by this writer",
-            "type": ["string", "integer", "null"]
+            "type": ["string", "integer", "boolean", "null"]
           },
           "clock": {
             "type": "integer",
