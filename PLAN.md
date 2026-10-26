@@ -34,8 +34,14 @@ Only the interactive-UI parts remain unverified. Fix what breaks, add a test for
       approval dialog shows the team-sync reason and that approving lets the edit through.
 - [ ] Interactive: `/team-sync:team` renders (the `` !`...` `` line runs, `$ARGUMENTS` substituted),
       `/team-sync:join` works mid-session and the next prompt gets the briefing.
-- [ ] Digest arrives mid-turn during a long task (PostToolUse `additionalContext`).
-- [ ] Run the tests on macOS with stock `python3` (3.9) and git.
+- [ ] Digest arrives mid-turn during a long task (PostToolUse `additionalContext`). Simulated in
+      `test_mid_turn_digest`; still to see in a real session (`team room set policy.digest_interval_sec 20`
+      in the sandbox so you don't wait 2 minutes).
+- [ ] Interactive (v0.2): `/team-sync:start` interviews the lead and creates the room; the other agents
+      show the title/goal/rules on their next prompt.
+- [ ] Interactive (v0.2): with `policy.overlap_action=warn` the overlapping edit goes through, the agent
+      mentions it in one line and keeps working; setting the policy from inside a session prompts you.
+- [x] Run the tests on macOS with stock `python3` (3.9) and git.
 - [x] Push this repo to `git@gitlab.com:nikulinsanya/hackaton-tool.git`. The hackathon dogfoods *this* repo, so everyone runs
       `claude --plugin-dir <stable checkout>/plugins/team-sync` (point it at main, not the agent's own
       worktree, so an agent never runs its own half-edited `team.py`). No marketplace install needed.
@@ -87,7 +93,7 @@ Only needed when team-sync is used in repos other than this one.
 
 | # | Item | Done when |
 |---|---|---|
-| H1 | CI: GitHub Actions matrix ubuntu+macOS × python 3.8/3.12 running `tests/` | green badge |
+| H1 | CI: `.gitlab-ci.yml` running `tests/` on python 3.8 and 3.12 (Linux; macOS runners on GitLab.com need a paid tier, so macOS stays a local check) | green pipeline |
 | H2 | Per-agent file lock (`fcntl.flock` in `<common-dir>/team-sync/locks/<id>`) around load→save | `test_parallel_writers_same_machine` asserts all 12 items survive |
 | H3 | `team gc`: squash branch history to one commit (keep tree), push with `--force-with-lease` | history < 10 commits after gc; other clones recover via the normal sync |
 | H4 | Windows: call `python` / `py -3` when `python3` is missing (wrapper script or hook command fallback) | tests pass on windows-latest |
