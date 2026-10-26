@@ -511,6 +511,19 @@ class TeamSyncTests(unittest.TestCase):
             "file_path": os.path.join(self.sanya, "src/api/new/thing2.ts")}})
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "ask")
 
+    def test_room_policy_warn_lets_edit_through_and_softens_briefing(self):
+        self.join_all()
+        self.e.team(self.anna, "claim", "src/api")
+        self.e.team(self.anna, "room", "set", "policy.overlap_action", "warn")
+        self.e.team(self.sanya, "sync")
+        text = ctx_text(self.e.hook(self.sanya, "session-start", {}))
+        self.assertIn("on an overlap warning, tell your human in one line", text)
+        out = self.e.hook(self.sanya, "pre-edit", {"tool_name": "Edit", "tool_input": {
+            "file_path": os.path.join(self.sanya, "src/api/routes.ts")}})
+        hso = out["hookSpecificOutput"]
+        self.assertNotIn("permissionDecision", hso)  # not held
+        self.assertIn("anna-api", hso["additionalContext"])
+
     def test_pre_bash_asks_for_policy_and_from(self):
         script = os.path.abspath(TEAM)
 

@@ -1319,9 +1319,15 @@ def briefing(ctx: Ctx) -> str:
         L.append('- Share: learn "<text>" | decide "<text>" | change "<text>" [--breaking] | ask <agent-id|all> "<text>"')
         L.append('- Answer an ask (never answer with a new ask): reply <agent-id>#<ask-id> "<answer>" [--done]')
         L.append("- Your edits are recorded automatically. Claim a whole area before a big refactor: claim <path/>")
-        L.append("Reaction rules: apply learnings silently; follow decisions; on an overlap or a breaking change "
-                 "that affects your work, stop and ask your human; answer asks addressed to you; never edit "
-                 "another agent's file.")
+        if ctx.cfg.get("overlap_action") == "warn":
+            overlap_rule = ("on an overlap warning, tell your human in one line and keep going with a minimal "
+                            "change (stop and ask only before refactoring that area); on a breaking change "
+                            "that affects your work, stop and ask your human")
+        else:
+            overlap_rule = ("on an overlap or a breaking change that affects your work, stop and ask "
+                            "your human")
+        L.append("Reaction rules: apply learnings silently; follow decisions; {}; answer asks addressed "
+                 "to you; never edit another agent's file.".format(overlap_rule))
     return "\n".join(L)
 
 

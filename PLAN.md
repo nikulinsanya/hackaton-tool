@@ -125,7 +125,9 @@ so they still get collision warnings.
 
 ## Hackathon day outline
 
-1. **Kickoff (30 min):** goal, demo of v0 in the sandbox, tracks, everyone joins the room.
+1. **Kickoff (30 min):** the lead runs `/team-sync:start hackathon --from examples/project/hackathon.json`
+   (edit title/goal first; it sets `policy.overlap_action=warn`), demo of v0 in the sandbox, tracks,
+   everyone joins the room.
 2. **Build blocks** with a 5-min standup every 2 h, run from `team status --all`. Did agents report? Any overlap warnings?
 3. **Freeze (1 h before end):** merge to main, `tests/` green.
 4. **Demo (10 min):** the script below.
@@ -141,8 +143,10 @@ so they still get collision warnings.
 
 ## Open decisions (owner: Sanya)
 
-- [ ] Default for non-hackathon agents: invisible (current default) or `auto_observe: "hackathon"`?
-- [ ] `overlap_action` default: `ask` (current) or `warn` during the hackathon to reduce friction?
+- [x] Default for non-hackathon agents: **invisible** (no `auto_observe`). Decided 2026-10-26.
+- [x] `overlap_action` during the hackathon: **warn**, set as room policy (`examples/project/hackathon.json`);
+      the built-in default stays `ask` for other repos. In warn mode agents mention the overlap and keep going.
+      Decided 2026-10-26.
 - [x] Repo/marketplace name and where it is hosted: deferred to "Later: distribution".
 - [x] Engine language: stay on Python (Node is not pre-installed anywhere and Claude Code's native
       installer doesn't need it; python3 ships with the Xcode CLT that git requires).

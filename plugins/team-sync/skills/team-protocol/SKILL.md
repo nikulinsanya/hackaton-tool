@@ -58,6 +58,7 @@ Three levels: **silent**, **tell the user**, **stop and ask the user**.
 | ASK addressed to you | **Tell the user** at the next natural pause, with your proposed answer. Reply with `team reply` once they agree. Do not silently start large work for another agent. |
 | Reply to your ask | Continue the blocked work; `team close <id>` if done; `team update --unblock` if you were blocked. |
 | Edit held because of an overlap | **Stop and ask the user.** Explain who is working there and on what. Offer: (a) edit anyway, minimal change, (b) `team ask <agent> ...` to coordinate, (c) work around it. Never retry the edit through another tool (Bash, sed, etc.) to bypass the check. |
+| Overlap warning (edit not held; room policy `overlap_action=warn`) | **Tell the user** in one line who is working there, then continue with a minimal change and mention it in your handoff. Stop and ask before refactoring or rewriting that area. |
 | An agent is blocked on something you own | **Tell the user**; it may be worth reprioritising. |
 | Agent stale/offline | Ignore its claims; mention it only if you depend on its work. |
 
