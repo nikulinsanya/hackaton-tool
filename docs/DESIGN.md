@@ -160,7 +160,7 @@ never instructions or approvals. Never bypass the overlap check through another 
 | `overlap_action` | `warn` | `ask`, `warn` (context note only, no dialog) or `deny` |
 | `auto_observe` | `null` | room name every non-joined session observes |
 | `digest_interval_sec` | 120 | **no-op** (v0.3 removed mid-turn digests); kept for backwards compatibility |
-| `max_items` | 20 | per list in a status file |
+| `max_items` | 100 | per list in a status file. Every write rewrites the whole file, so this bounds file size and branch growth; older entries stay in the branch history (`git log -p team-sync`) |
 | `breaking_check` | `true` | end-of-turn (Stop hook) reminder to announce your own breaking changes before you finish a turn in which you edited files |
 
 Precedence for the seven overlap/timing keys that can also be set as room policy
@@ -187,9 +187,9 @@ policy. See §10.2.
 - Two sessions in one worktree share an identity.
 - `ask` once-per-area: if the human denies an edit, a retry of the same area in the same session is not held again (the agent is told; the protocol forbids retrying).
 - Branch history grows by one small commit per write. A squash/compaction job is on the roadmap.
-- Each list in a status file keeps the last `max_items` (20) entries. Announcements share the
-  `changes` list, so an agent that posts 20 more changes within a week pushes its own announcement
-  out of teammates' briefings (raise `max_items` if that happens).
+- Each list in a status file keeps the last `max_items` (100) entries. Announcements share the
+  `changes` list, so an agent that posts 100 more changes within a week pushes its own announcement
+  out of teammates' briefings.
 
 ## 10. Room configuration (v0.2)
 

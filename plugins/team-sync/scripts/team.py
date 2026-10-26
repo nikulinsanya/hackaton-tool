@@ -34,7 +34,7 @@ import tempfile
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 SCHEMA = 1
 CONFIG_FILE = ".team-sync.json"
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -67,7 +67,7 @@ DEFAULTS: Dict[str, Any] = {
     "overlap_action": "warn",     # "ask" | "warn" | "deny"
     "auto_observe": None,         # room name: every session here observes it
     "digest_interval_sec": 120,   # no-op, kept for backwards compatibility (v0.3: no mid-turn digests)
-    "max_items": 20,              # per list (learnings, decisions, ...)
+    "max_items": 100,             # per list (learnings, decisions, ...); whole file is rewritten per write
     "breaking_check": True,       # end-of-turn reminder to announce your own breaking changes
 }
 

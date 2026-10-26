@@ -53,7 +53,7 @@ CLAUDE.md                              guide for Claude Code working on this rep
 ## Try it in 2 minutes (no install)
 
 ```bash
-python3 -m unittest discover -s tests          # 55 end-to-end tests
+python3 -m unittest discover -s tests          # 56 end-to-end tests
 bash tools/sandbox.sh                          # prints 3 commands to start 3 agents
 ```
 

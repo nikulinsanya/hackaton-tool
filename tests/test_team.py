@@ -318,6 +318,17 @@ class TeamSyncTests(unittest.TestCase):
 
     # --------------------------------------------------------------- safety
 
+    def test_list_cap_default_100_and_configurable(self):
+        self.e.team(self.sanya, "join", "hackathon", "--as", "frontend")
+        cfg = json.loads(self.e.team(self.sanya, "doctor").stdout)["config"]
+        self.assertEqual(cfg["max_items"], 100)
+        with open(os.path.join(self.sanya, ".team-sync.json"), "w") as f:
+            json.dump({"max_items": 3}, f)
+        for i in range(5):
+            self.e.team(self.sanya, "learn", "fact {}".format(i))
+        learnings = self.ids(self.sanya)["sanya-frontend"]["learnings"]
+        self.assertEqual([x["text"] for x in learnings], ["fact 2", "fact 3", "fact 4"])
+
     def test_secret_and_length_guard(self):
         self.e.team(self.sanya, "join", "hackathon", "--as", "frontend")
         p = self.e.team(self.sanya, "learn", "staging password=hunter2hunter2", check=False)
