@@ -1,5 +1,5 @@
 {
-  "description": "team-sync: brief the agent at start, deliver room updates on the next prompt, record edits, warn before overlapping edits, and run an end-of-turn breaking-change check. Every handler is a no-op unless this agent joined a room.",
+  "description": "team-sync: brief the agent at start, deliver room updates on the next prompt, record edits, warn before overlapping edits, remind to announce breaking changes at the first edit of a turn, run an end-of-turn check for incoming breaking changes, and let the team-protocol skill and plain CLI calls load/run without a permission prompt. Every handler is a no-op unless this agent joined a room.",
   "hooks": {
     "SessionStart": [
       {
@@ -40,6 +40,16 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/team.py\" hook pre-bash",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/team.py\" hook pre-skill",
             "timeout": 5
           }
         ]

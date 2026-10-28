@@ -12,6 +12,12 @@
   local branch and on origin: lifecycle, the demo script, mid-turn digest, join mid-session, the
   `claude -w` worktree layout, presence, handoff, hooks.json wiring. Green on stock macOS python 3.9.
 - **v0.2.0 room configuration is done** (see below): 38 tests green on python 3.9 and 3.14.
+- v0.4.2: fixes from a real headless Claude run (quote-aware CLI auto-approval, announce reminder
+  at first edit instead of a second answer, briefing matches the protocol, team-sync skills load
+  without a prompt).
+- v0.4.3: a resumed or compacted session doesn't repeat breaking-change warnings it already gave;
+  the announce/start skills run git and team commands one per call. Re-run of the real-Claude
+  scenario after v0.4.2: all 10 steps pass, no permission prompts, one answer per turn.
 - `claude plugin validate` passes for the marketplace and the plugin.
 - Verified with real `claude -p --plugin-dir` sessions in the sandbox:
   - the SessionStart briefing reaches the agent (it quoted it and listed its open asks);

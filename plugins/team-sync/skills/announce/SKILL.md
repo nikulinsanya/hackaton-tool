@@ -25,3 +25,7 @@ Announce something ready so other agents in the room can start using it.
    If what is ready also changes an existing interface callers use, additionally
    publish `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/team.py" change "<what changed>" --breaking`.
 6. Confirm to the user in one line what was published.
+
+Run every command on its own, in the current directory: plain `git log`, `git diff`,
+`git status`, `git branch` (no `git -C <path>`) and one `team.py` call per command (no
+`&&`, `;`, pipes or redirects). Those are the forms that run without a permission prompt.

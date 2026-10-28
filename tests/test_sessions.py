@@ -205,6 +205,9 @@ class Session:
         return Result(pre, decision=decision, reason=reason, context=pre_ctx,
                       post=post, post_context=post_ctx)
 
+    def skill(self, skill_name):
+        return self._pre_tool("Skill", {"skill": skill_name})
+
     def bash(self, cmd, approve=True):
         tool_input = {"command": cmd}
         pre = self._pre_tool("Bash", tool_input)
@@ -395,19 +398,19 @@ class SessionTests(unittest.TestCase):
         frontend.prompt("start")
 
         r1 = frontend.edit("src/api/routes.ts")
-        self.assertEqual(r1.post_context, "")  # nothing new yet
+        self.assertIn("--breaking", r1.post_context)  # first edit of the turn: announce reminder
 
         self.e.team(self.anna, "change", "renamed getUser to fetchUser")
         self.e.team(self.anna, "sync")
 
         r2 = frontend.edit("src/auth/session.ts")
-        self.assertEqual(r2.post_context, "")  # still nothing mid-turn
+        self.assertEqual(r2.post_context, "")  # not the first edit of the turn: nothing, no digest either
 
         r3 = frontend.prompt("what changed?")
         self.assertIn("renamed getUser to fetchUser", r3.context)
 
         r4 = frontend.edit("README.md")
-        self.assertEqual(r4.post_context, "")
+        self.assertIn("--breaking", r4.post_context)  # first edit of the *new* turn: reminder again
         r5 = frontend.prompt("again?")
         self.assertEqual(r5.context, "")  # nothing new since r3
 
@@ -596,7 +599,7 @@ class SessionTests(unittest.TestCase):
         # config changes also never arrive mid-turn (v0.3): only on the next prompt
         api.team("room", "set", "title", "Hack Day 3")
         r1 = frontend.edit("src/api/routes.ts")
-        self.assertEqual(r1.post_context, "")
+        self.assertNotIn("Hack Day 3", r1.post_context)  # no config digest mid-turn
         d3 = frontend.prompt("config change?")
         self.assertIn("ROOM: title = Hack Day 3 (by anna-api)", d3.context)
 
@@ -638,7 +641,7 @@ class SessionTests(unittest.TestCase):
 
         frontend.prompt("start task")
         r = frontend.edit("src/auth/login.ts")
-        self.assertEqual(r.post_context, "")  # no mid-turn digest
+        self.assertIn("--breaking", r.post_context)  # first-edit announce reminder, no digest
 
         api.team("change", "getUser() returns null", "--breaking")
 
@@ -656,6 +659,32 @@ class SessionTests(unittest.TestCase):
         d = frontend.prompt("next")
         self.assertNotIn("getUser", d.context)
         self.assertIn("staging needs VPN", d.context)
+
+    def test_resume_does_not_repeat_reported_breaking_change(self):
+        set_cfg(self.sanya, **FAST_CFG)
+        set_cfg(self.anna, **FAST_CFG)
+        frontend = self.session(self.sanya, "fe-resume", CLAUDE_TEAM_ROOM="hackathon",
+                                CLAUDE_TEAM_AGENT="frontend")
+        api = self.session(self.anna, "api-resume", CLAUDE_TEAM_ROOM="hackathon",
+                           CLAUDE_TEAM_AGENT="api")
+        frontend.start()
+        api.start()
+        api.team("change", "getUser() returns null", "--breaking")
+        d = frontend.prompt("next")  # reported here, with the warn instruction
+        self.assertIn("getUser() returns null", d.context)
+        self.assertIn("impact check", d.context)
+        # resume and auto-compact keep the session id: listed, but not to be repeated
+        for source in ("resume", "compact"):
+            b = frontend.start(source=source).context
+            self.assertIn("already reported to your human in this session", b)
+            self.assertIn("getUser() returns null", b)
+            self.assertNotIn("Breaking changes in the last 24h", b)
+        # a new session (e.g. after /clear) has not told its human yet: warn again
+        fresh = self.session(self.sanya, "fe-new-session", CLAUDE_TEAM_ROOM="hackathon",
+                             CLAUDE_TEAM_AGENT="frontend")
+        b = fresh.start().context
+        self.assertIn("Breaking changes in the last 24h", b)
+        self.assertIn("impact check", b)
 
     def test_stop_hook_new_agent_still_announced_as_joined(self):
         # a teammate whose very first visible action is a breaking change, surfaced at
@@ -676,47 +705,32 @@ class SessionTests(unittest.TestCase):
         self.assertIn("anna-api joined", d.context)
         self.assertNotIn("getUser", d.context)
 
-    def test_stop_hook_own_edit_reminder(self):
+    def test_post_tool_first_edit_breaking_reminder(self):
+        """The announce-breaking reminder lives on the first edit of a turn
+        (PostToolUse), not at Stop: it must never duplicate or replace the agent's
+        real answer."""
         set_cfg(self.sanya, **FAST_CFG)
 
         s1 = self.session(self.sanya, "own-edit-1", CLAUDE_TEAM_ROOM="hackathon",
                           CLAUDE_TEAM_AGENT="frontend1")
         s1.start()
         s1.prompt("task")
-        s1.edit("src/auth/login.ts")
-        r1 = s1.stop()
-        self.assertEqual(r1.decision, "block")
-        self.assertIn("src/auth/login.ts", r1.reason)
-        self.assertIn("--breaking", r1.reason)
+        r1 = s1.edit("src/auth/login.ts")
+        self.assertIn("Before your final answer", r1.post_context)
+        self.assertIn("--breaking", r1.post_context)
 
-        # announcing the change before Stop suppresses the reminder
-        s2 = self.session(self.sanya, "own-edit-2", CLAUDE_TEAM_ROOM="hackathon",
-                          CLAUDE_TEAM_AGENT="frontend2")
-        s2.start()
-        s2.prompt("task")
-        s2.edit("src/auth/session.ts")
-        s2.team("change", "renamed helper", "--breaking")
-        r2 = s2.stop()
-        self.assertIsNone(r2.raw)
+        # a later edit in the same turn: no repeat
+        r1b = s1.edit("src/auth/session.ts")
+        self.assertEqual(r1b.post_context, "")
 
-        # no edits and nothing incoming -> None
-        s3 = self.session(self.sanya, "own-edit-3", CLAUDE_TEAM_ROOM="hackathon",
-                          CLAUDE_TEAM_AGENT="frontend3")
-        s3.start()
-        s3.prompt("task")
-        r3 = s3.stop()
-        self.assertIsNone(r3.raw)
+        # a new turn: the reminder fires again at its first edit
+        s1.prompt("task 2")
+        r1c = s1.edit("README.md")
+        self.assertIn("--breaking", r1c.post_context)
 
-        # Stop runs only once per turn
-        s4 = self.session(self.sanya, "own-edit-4", CLAUDE_TEAM_ROOM="hackathon",
-                          CLAUDE_TEAM_AGENT="frontend4")
-        s4.start()
-        s4.prompt("task")
-        s4.edit("README.md")
-        r4a = s4.stop()
-        self.assertEqual(r4a.decision, "block")
-        r4b = s4.stop()
-        self.assertIsNone(r4b.raw)
+        # Stop never blocks for this (moved to PostToolUse): no duplicate/second answer
+        r1d = s1.stop()
+        self.assertIsNone(r1d.raw)
 
     def test_stop_hook_breaking_check_disabled(self):
         set_cfg(self.sanya, **FAST_CFG)
@@ -728,9 +742,10 @@ class SessionTests(unittest.TestCase):
         s.team("room", "set", "policy.breaking_check", "false")
 
         s.prompt("task")
-        s.edit("src/auth/login.ts")
-        r1 = s.stop()
-        self.assertIsNone(r1.raw)  # own-edit reminder suppressed
+        r1 = s.edit("src/auth/login.ts")
+        self.assertEqual(r1.post_context, "")  # first-edit reminder suppressed
+        r1s = s.stop()
+        self.assertIsNone(r1s.raw)
 
         # incoming breaking changes still work: announced *after* the next prompt's
         # digest, so Stop (not the ordinary digest) is what surfaces it
@@ -744,7 +759,7 @@ class SessionTests(unittest.TestCase):
         r2 = s.stop()
         self.assertEqual(r2.decision, "block")
         self.assertIn("anna-api", r2.reason)
-        self.assertNotIn("--breaking", r2.reason)  # no own-edit reminder text
+        self.assertNotIn("--breaking", r2.reason)  # no own-edit reminder text in Stop
 
     def test_stop_hook_observer_incoming_only(self):
         set_cfg(self.sanya, **FAST_CFG)
@@ -753,9 +768,10 @@ class SessionTests(unittest.TestCase):
                            CLAUDE_TEAM_AGENT="watcher", CLAUDE_TEAM_ROLE="observer")
         obs.start()
         obs.prompt("task")
-        obs.edit("src/auth/login.ts")
+        r0 = obs.edit("src/auth/login.ts")
+        self.assertEqual(r0.post_context, "")  # observers are never reminded to announce changes
         r1 = obs.stop()
-        self.assertIsNone(r1.raw)  # observers are never reminded to announce changes
+        self.assertIsNone(r1.raw)
 
         api = self.session(self.anna, "api-obs", CLAUDE_TEAM_ROOM="hackathon",
                            CLAUDE_TEAM_AGENT="api")
@@ -773,6 +789,22 @@ class SessionTests(unittest.TestCase):
         s.prompt("hi")
         r = s.stop()
         self.assertIsNone(r.raw)
+
+    def test_pre_skill_hook_wiring(self):
+        set_cfg(self.sanya, **FAST_CFG)
+        s = self.session(self.sanya, "skill-sess", CLAUDE_TEAM_ROOM="hackathon",
+                         CLAUDE_TEAM_AGENT="frontend")
+        s.start()
+        out = s.skill("team-sync:team-protocol")
+        hso = (out or {}).get("hookSpecificOutput") or {}
+        self.assertEqual(hso.get("permissionDecision"), "allow")
+
+        out2 = s.skill("some-other-plugin:some-skill")
+        self.assertIsNone(out2)
+
+        not_joined = self.session(self.anna, "not-joined-skill")
+        out3 = not_joined.skill("team-sync:team-protocol")
+        self.assertIsNone(out3)
 
     # 10. --------------------------------------------------------- wiring
 
@@ -797,6 +829,11 @@ class SessionTests(unittest.TestCase):
         matchers = {entry.get("matcher") for entry in spec["hooks"]["PreToolUse"]}
         self.assertIn("Edit|Write|MultiEdit|NotebookEdit", matchers)
         self.assertIn("Bash", matchers)
+        self.assertIn("Skill", matchers)
+        for entry in spec["hooks"]["PreToolUse"]:
+            if entry.get("matcher") == "Skill":
+                self.assertTrue(
+                    any("pre-skill" in h["command"] for h in entry["hooks"]))
         post_matchers = {entry.get("matcher") for entry in spec["hooks"]["PostToolUse"]}
         self.assertIn("Edit|Write|MultiEdit|NotebookEdit|Bash", post_matchers)
 
@@ -839,16 +876,15 @@ class SessionTests(unittest.TestCase):
 
         frontend.prompt("start task")
         r = frontend.edit("src/auth/login.ts")
-        self.assertEqual(r.post_context, "")  # mid-turn: no digest
+        self.assertIn("--breaking", r.post_context)  # first-edit announce reminder, no digest
 
         api.team("announce", "Authorization is ready: POST /auth/login")
 
         r1 = frontend.stop()
-        # Stop may still block for the own-edit reminder, but never because of the
-        # READY announcement: that waits for the next prompt.
-        if r1.raw is not None:
-            self.assertNotIn("anna-api", r1.reason)
-            self.assertNotIn("Authorization is ready", r1.reason)
+        # Stop never blocks for the own-edit reminder (moved to the first-edit
+        # PostToolUse note) and never because of the READY announcement: that
+        # waits for the next prompt.
+        self.assertIsNone(r1.raw)
 
         d = frontend.prompt("anything new?")
         self.assertIn("* READY from anna-api", d.context)

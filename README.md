@@ -27,19 +27,23 @@ writes nothing and sees nothing.
 ![Each hook injects context into the agent and writes only the agent's own file; the edit check never touches the network](docs/images/2-one-agent-session-hook-by-hook.png)
 
 Upward arrows put text into the agent's context; downward arrows write the agent's own file on
-the branch. News arrives with your next prompt. When the agent finishes a turn, the Stop check
-adds warnings for breaking changes that came in meanwhile and asks whether its own edits broke
-anything for others. The edit check reads local data only (about 0.2 s), and calls to the team
-CLI need no permission prompt.
+the branch. News arrives with your next prompt. At its first edit of a turn, the agent gets a
+one-time note asking whether that change breaks anything for others - this never shows up twice
+and never stands in for the agent's real answer. When the agent finishes the turn, the Stop
+check only adds warnings for breaking changes that came in from other agents meanwhile. The
+edit check reads local data only (about 0.2 s), and calls to the team CLI need no permission
+prompt - run each one on its own (no `&&`, `;`, pipes or redirects) and the agent never sees a
+dialog for it.
 
 ### A breaking change, end to end
 
 ![anna-api's end-of-turn check makes it announce a breaking change; sanya-frontend opens its next answer with a warning and an impact check](docs/images/3-a-breaking-change-end-to-end.png)
 
-The agent that changed shared code is asked at the end of its turn whether it broke anything,
-and announces it. Every other agent in the room tells its developer at the start of its next
-answer (or at the end of the task it is busy with) and searches the repo for the places that
-use the changed code. It proposes the fix; you decide whether to apply it.
+The agent that changed shared code is asked at its first edit of the turn whether it broke
+anything, and announces it before it answers. Every other agent in the room tells its developer
+at the start of its next answer (or at the end of the task it is busy with) and searches the
+repo for the places that use the changed code. It proposes the fix; you decide whether to apply
+it.
 
 ### Announcing what's ready
 
@@ -193,7 +197,7 @@ plugin) and ask:
 
 | Ask Claude | What it does |
 |---|---|
-| "Run the tests." | the 56 end-to-end tests (about 2.5 minutes) |
+| "Run the tests." | the 62 end-to-end tests (about 3-4 minutes) |
 | "Validate the plugin." | checks the marketplace and plugin manifests |
 | "Render the diagrams." | renders `docs/how-it-works.html` to `docs/images/`, checks each image for collisions and fixes them (`/render-diagrams`) |
 | "Set up a sandbox to try it." | builds a throwaway origin with two clones and a worktree (`tools/sandbox.sh`) |

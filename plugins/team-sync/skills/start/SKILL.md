@@ -14,6 +14,9 @@ so everyone who joins afterwards gets them in their briefing.
 up the room; every participant then just launches their agent in that room (`/team-sync:join`
 or `CLAUDE_TEAM_ROOM=<room> claude ...`) - they should not run `/team-sync:start` again.
 
+Run each `team.py` command on its own (no `&&`, `;`, pipes or redirects): that is what lets
+it run without a permission prompt.
+
 1. Parse `$ARGUMENTS`: an optional room name (default `hackathon`) and an optional
    `--from <file>` pointing at a template JSON file (the shape `room export` prints:
    `{"title", "description", "goal", "rules": [...], "policy": {...}, "fields": {...}}`).

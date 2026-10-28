@@ -189,7 +189,7 @@
 
 <main class="page">
   <header>
-    <div class="eyebrow">team-sync 0.4.0 · Claude Code plugin</div>
+    <div class="eyebrow">team-sync 0.4.2 · Claude Code plugin</div>
     <h1>How team-sync works</h1>
     <p class="lede">Claude Code agents that join a room share what they are doing through <em>one git branch</em> in the repo you already use. No server, no database: each agent writes its own small status file, hooks keep everyone briefed, edits into someone else's area are flagged, and breaking changes reach every developer as a warning. No approval dialogs.</p>
   </header>
@@ -298,7 +298,7 @@
     <p>Hooks do the plumbing on every session event. The agent's only job is to say what it is doing and to react to others, using the <code>team</code> CLI. Nothing interrupts it in the middle of a task.</p>
     <figure>
       <div class="frame">
-        <svg class="fig" viewBox="0 0 1000 350" role="img" aria-label="Across a session, hooks inject the briefing, a digest on each prompt, an overlap note, and at the end of each turn breaking-change warnings plus an announce check; they write only the agent's own file, and the edit check never touches the network.">
+        <svg class="fig" viewBox="0 0 1000 350" role="img" aria-label="Across a session, hooks inject the briefing, a digest on each prompt, an overlap note, a one-time announce reminder at the first edit of a turn, and at the end of a turn warnings for breaking changes that arrived meanwhile; they write only the agent's own file, and the edit check never touches the network.">
           <defs>
             <marker id="f2-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-muted"/></marker>
             <marker id="f2-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-blue"/></marker>
@@ -321,15 +321,18 @@
           <text x="417" y="68" text-anchor="middle">overlap note</text>
           <rect class="box-quiet" x="610" y="48" width="114" height="32" rx="16"/>
           <text x="667" y="68" text-anchor="middle">no prompt needed</text>
-          <rect class="box-amber" x="732" y="38" width="120" height="46" rx="12"/>
-          <text class="amber-t" x="792" y="57" text-anchor="middle">breaking warnings</text>
-          <text class="amber-t" x="792" y="74" text-anchor="middle">+ announce check</text>
+          <rect class="box-quiet" x="482" y="38" width="120" height="46" rx="12"/>
+          <text x="542" y="57" text-anchor="middle">announce reminder</text>
+          <text class="t-m" x="542" y="74" text-anchor="middle">first edit of a turn</text>
+          <rect class="box-amber" x="735" y="48" width="114" height="32" rx="16"/>
+          <text class="amber-t" x="792" y="68" text-anchor="middle">breaking warnings</text>
 
           <line class="wire" x1="167" y1="134" x2="167" y2="84" marker-end="url(#f2-muted)"/>
           <line class="wire" x1="292" y1="134" x2="292" y2="84" marker-end="url(#f2-muted)"/>
           <line class="wire" x1="417" y1="134" x2="417" y2="84" marker-end="url(#f2-muted)"/>
+          <line class="wire" x1="542" y1="134" x2="542" y2="88" marker-end="url(#f2-muted)"/>
           <line class="wire" x1="667" y1="134" x2="667" y2="84" marker-end="url(#f2-muted)"/>
-          <line class="wire-amber" x1="792" y1="134" x2="792" y2="88" marker-end="url(#f2-amber)"/>
+          <line class="wire-amber" x1="792" y1="134" x2="792" y2="84" marker-end="url(#f2-amber)"/>
 
           <!-- hook events -->
           <rect class="box" x="110" y="136" width="114" height="44" rx="6"/>
@@ -376,7 +379,7 @@
           <text class="mono t-m" x="917" y="326" text-anchor="middle">sync now</text>
         </svg>
       </div>
-      <figcaption>Upward arrows put text into the agent's context; downward arrows write the agent's own file on the branch. News arrives with your next prompt. When the agent finishes a turn, the Stop check adds warnings for breaking changes that came in meanwhile and asks whether its own edits broke anything for others. Calls to the team CLI need no permission prompt.</figcaption>
+      <figcaption>Upward arrows put text into the agent's context; downward arrows write the agent's own file on the branch. News arrives with your next prompt. At its first edit of a turn the agent gets a one-time reminder to announce anything it breaks, and if breaking changes from others arrived while it worked, the end-of-turn check adds a warning to its answer. Each team command runs on its own and needs no permission prompt.</figcaption>
     </figure>
   </section>
 
@@ -385,7 +388,7 @@
     <p>This is what the room is for: whoever breaks a shared interface says so, and every other developer hears about it in their agent's next answer, with a check of where their code is affected.</p>
     <figure>
       <div class="frame">
-        <svg class="fig" viewBox="0 0 1000 296" role="img" aria-label="anna-api edits getUser, its end-of-turn check prompts it to announce the breaking change, the announcement syncs through the branch, and sanya-frontend opens its next answer with a warning and an impact check.">
+        <svg class="fig" viewBox="0 0 1000 296" role="img" aria-label="anna-api edits getUser, a reminder at its first edit prompts it to announce the breaking change, the announcement syncs through the branch, and sanya-frontend opens its next answer with a warning and an impact check.">
           <defs>
             <marker id="f5-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-muted"/></marker>
             <marker id="f5-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-blue"/></marker>
@@ -398,8 +401,8 @@
           <text class="mono" x="32" y="86">src/auth/user.ts</text>
           <line class="wire" x1="176" y1="100" x2="176" y2="124" marker-end="url(#f5-muted)"/>
           <rect class="box-amber" x="16" y="128" width="320" height="60" rx="6"/>
-          <text class="t-b" x="32" y="154">end-of-turn check</text>
-          <text class="t-m" x="32" y="174">asks: did this break anything for others?</text>
+          <text class="t-b" x="32" y="154">announce reminder</text>
+          <text class="t-m" x="32" y="174">at its first edit: does this break others?</text>
           <line class="wire" x1="176" y1="188" x2="176" y2="212" marker-end="url(#f5-muted)"/>
           <rect class="box" x="16" y="216" width="320" height="60" rx="6"/>
           <text class="t-b" x="32" y="242">announces it</text>
@@ -431,7 +434,7 @@
           <text class="t-m" x="680" y="262">LoginForm.tsx:12 uses it · fix proposed</text>
         </svg>
       </div>
-      <figcaption>The agent that changed shared code is asked at the end of its turn whether it broke anything, and announces it. Every other agent in the room tells its developer at the start of its next answer, or at the end of the task it is busy with, and searches the repo for the places that use the changed code. It proposes the fix; you decide whether to apply it.</figcaption>
+      <figcaption>The agent that changes shared code is reminded at its first edit to announce anything breaking, and does so before it answers. Every other agent in the room tells its developer at the start of its next answer, or at the end of the task it is busy with, and searches the repo for the places that use the changed code. It proposes the fix; you decide whether to apply it.</figcaption>
     </figure>
   </section>
 

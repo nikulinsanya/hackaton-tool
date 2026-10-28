@@ -35,8 +35,7 @@ printf '# Sandbox project\n' > "$SEED/README.md"
 cat > "$SEED/.team-sync.json" <<'EOF'
 {
   "remote": "origin",
-  "fetch_interval_sec": 15,
-  "overlap_action": "ask"
+  "fetch_interval_sec": 15
 }
 EOF
 git -C "$SEED" add -A
@@ -70,10 +69,13 @@ Open three terminals:
   cd "$DIR/anna" && CLAUDE_TEAM_ROOM=hackathon CLAUDE_TEAM_AGENT=api claude --plugin-dir "$PLUGIN"
 
 Things to try:
-  - In "api": "Claim src/auth/ and change getUser() to return null; announce it as a breaking change."
-  - In "frontend": "Edit src/auth/login.ts"  -> the edit is held, Claude explains the overlap.
-  - In "frontend": "/team-sync:team"          -> room overview.
-  - In "tests": "Ask the api agent for a test fixture."  -> shows up in api's next prompt.
+  - In "api": "Change getUser() in src/auth/user.ts to return null instead of throwing."
+      -> at the end of its turn it announces this as a breaking change.
+  - In "frontend": any request  -> its answer opens with a warning about getUser() and where it is used.
+  - In "frontend": "Add a comment to src/auth/login.ts"  -> no dialog; one line about api working there.
+  - In "api": "/team-sync:announce Authorization is ready"  -> frontend mentions it in its next answer.
+  - In "tests": "Ask the api agent for a test fixture."  -> shows up in api's next answer.
+  - Anywhere: "/team-sync:team"  -> room overview.
 
 Inspect the shared state any time:
   python3 "$PLUGIN/scripts/team.py" status --all     (run inside any clone)

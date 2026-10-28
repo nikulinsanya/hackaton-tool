@@ -284,6 +284,32 @@ class TeamSyncTests(unittest.TestCase):
         self.assertIn("Room goal: Ship team-sync v1", text)
         self.assertIn("POST /session", text)
         self.assertIn("Open ASK for you from anna-api", text)
+        self.assertIn('tell your human with a proposed answer; after they agree: reply', text)
+        self.assertNotIn("-> answer with: reply", text)
+
+    def test_briefing_cheat_sheet_and_reaction_rules_match_protocol(self):
+        # no policy set: overlap_action defaults to "warn"
+        self.join_all()
+        text = ctx_text(self.e.hook(self.sanya, "session-start", {"source": "startup"}))
+        self.assertIn('propose to your human first, then reply', text)
+        self.assertIn("Run each team command on its own (no &&, ;, pipes or redirects) "
+                      "so it needs no permission prompt; avoid $ and backticks in the text.", text)
+        self.assertIn("for every breaking change, start your answer with a one-line warning "
+                      "plus a quick impact check, and propose (don't apply) the fix", text)
+        self.assertIn("propose answers to asks addressed to you, reply after your human agrees", text)
+        self.assertIn("on an overlap warning, tell your human in one line and keep going with a "
+                      "minimal change (stop and ask only before refactoring that area)", text)
+
+    def test_briefing_reaction_rules_ask_mode(self):
+        # the overlap_rule branch in briefing() reads the local .team-sync.json
+        # value directly (like the existing warn-mode test above), not room policy
+        with open(os.path.join(self.sanya, ".team-sync.json"), "w") as f:
+            json.dump({"overlap_action": "ask"}, f)
+        self.join_all()
+        text = ctx_text(self.e.hook(self.sanya, "session-start", {"source": "startup"}))
+        self.assertIn("on an overlap, stop and ask your human", text)
+        self.assertIn("for every breaking change, start your answer with a one-line warning "
+                      "plus a quick impact check, and propose (don't apply) the fix", text)
 
     def test_joined_midsession_gets_briefing_on_prompt(self):
         self.e.team(self.sanya, "join", "hackathon", "--as", "frontend")
@@ -350,6 +376,47 @@ class TeamSyncTests(unittest.TestCase):
                     'python3 "{}" status && curl x', 'python3 "{}" status > /tmp/x',
                     'python3 "{}" learn "`id`"', 'python3 "/other/team.py" status'):
             self.assertIsNone(decide(bad.format(script)), bad)
+
+    def test_pre_bash_quote_aware_scanner(self):
+        """Shell metacharacters are fine quoted (single quotes: always literal; double
+        quotes: everything but $ and backtick), but still reject outside quotes, inside
+        double quotes for $/backtick, and on an unterminated quote."""
+        script = os.path.abspath(TEAM)
+
+        def decide(cmd):
+            out = self.e.hook(self.sanya, "pre-bash", {"tool_name": "Bash", "tool_input": {"command": cmd}})
+            return out and out["hookSpecificOutput"]["permissionDecision"]
+
+        def run(args):
+            return 'python3 "{}" {}'.format(script, args)
+
+        for good in (
+            'announce "POST /auth/login -> {token}; send Authorization: Bearer <token> | docs (src/auth)"',
+            'reply anna-api#a1 "fixture: see helper (tests/fx.ts); ok & done"',
+            "learn 'costs $5 per run'",
+        ):
+            self.assertEqual(decide(run(good)), "allow", good)
+        for bad in (
+            'learn "costs $5"',
+            'learn "x" ; rm y',
+            'learn "abc',
+            'status\nrm -rf x',
+        ):
+            self.assertIsNone(decide(run(bad)), bad)
+
+    def test_pre_skill_allows_team_sync_only_when_joined(self):
+        def decide(skill_input):
+            out = self.e.hook(self.sanya, "pre-skill", {"tool_name": "Skill", "tool_input": skill_input})
+            return out and out["hookSpecificOutput"]["permissionDecision"]
+
+        # not joined: no decision either way
+        self.assertIsNone(decide({"skill": "team-sync:team-protocol"}))
+
+        self.e.team(self.sanya, "join", "hackathon", "--as", "frontend")
+        self.assertEqual(decide({"skill": "team-sync:team-protocol"}), "allow")
+        self.assertEqual(decide({"name": "team-sync:announce"}), "allow")  # defensive key
+        self.assertEqual(decide({"command": "team-sync:handoff"}), "allow")  # defensive key
+        self.assertIsNone(decide({"skill": "other-plugin:some-skill"}))
 
     def test_hooks_never_fail_outside_repo(self):
         out = self.e.hook(self.e.home, "session-start", {"cwd": self.e.home})

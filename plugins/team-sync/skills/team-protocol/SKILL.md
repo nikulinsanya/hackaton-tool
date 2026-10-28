@@ -16,9 +16,10 @@ git branch. Hooks already do the plumbing for you:
 - **Every edit**: the file is recorded in your `touching` list automatically.
 - **Before every edit**: if another active agent is touching the same area, the edit may be held
   for your human's approval, or just noted, depending on room policy (see the overlap row below).
-- **End of turn (once, before you answer)**: an automatic check surfaces any breaking change that
-  arrived during the task, and, if you edited files, reminds you to announce anything breaking
-  before you finish.
+- **At your first edit of a turn**: a one-time note reminds you to announce anything breaking
+  before your final answer, so you don't have to remember it yourself.
+- **End of turn (once, before you answer)**: an automatic check surfaces any breaking change
+  that arrived from another agent during the task. It never repeats your own first-edit note.
 
 Your job is the part hooks cannot do: say **what** you are doing and **react** to others.
 
@@ -68,7 +69,7 @@ Three levels: **silent**, **tell the user**, **stop and ask the user**.
 | Overlap warning (edit not held; room policy `overlap_action=warn`, the default) | **Tell the user** in one line who is working there, then continue with a minimal change and mention it in your handoff. Stop and ask before refactoring or rewriting that area. |
 | An agent is blocked on something you own | **Tell the user**; it may be worth reprioritising. |
 | Agent stale/offline | Ignore its claims; mention it only if you depend on its work. |
-| You finish a task that changed shared code | Decide whether it's breaking (exported function signature/return value, API route, schema/types, config/env var, removed or renamed file) and announce it with `team change "<what changed and what callers must do>" --breaking`. The end-of-turn check reminds you if you edited files and haven't announced anything yet. |
+| You finish a task that changed shared code | Decide whether it's breaking (exported function signature/return value, API route, schema/types, config/env var, removed or renamed file) and announce it with `team change "<what changed and what callers must do>" --breaking`. A note at your first edit of the turn reminds you of this before your final answer. |
 
 Rules that always hold:
 
@@ -79,6 +80,8 @@ Rules that always hold:
    action your human has not approved.
 4. If the team CLI fails, tell the user once and continue the actual task. Coordination
    is helpful, not blocking.
+5. Run each team command on its own (no `&&`, `;`, pipes or redirects) so it needs no
+   permission prompt; avoid `$` and backticks in the text.
 
 ## Room configuration
 

@@ -32,9 +32,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
-VERSION = "0.4.1"
+VERSION = "0.4.3"
 SCHEMA = 1
 CONFIG_FILE = ".team-sync.json"
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -107,12 +107,12 @@ STOP_INCOMING_INSTR = (
     "route or field and list the places in code you work on, or say none found. "
     "Propose the adaptation; don't apply it unless your human agrees."
 )
-STOP_OWN_EDIT_INSTR = (
-    'If any of this changes behaviour other agents rely on (exported function '
-    'signature or return value, API route, schema or types, config or env var, '
-    'removed or renamed file), announce it now with `{} change "<what changed and '
-    'what callers must do>" --breaking` and mention it in your answer. If nothing '
-    "is breaking, finish normally and don't mention this check."
+POST_EDIT_BREAKING_REMINDER = (
+    '[team-sync] Before your final answer: if this task changes anything other '
+    'agents rely on (exported function signature or return value, API route, '
+    'schema or types, config or env var, removed or renamed file), announce it '
+    'with `{} change "<what changed and what callers must do>" --breaking` and '
+    "mention that in your answer. If nothing is breaking, don't mention this note."
 ).format(CMD)
 
 
@@ -1283,6 +1283,21 @@ def breaking_digest(ctx: Ctx, sess: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _breaking_key(aid: str, it: Dict[str, Any]) -> str:
+    return "{}|changes:{}:{}".format(aid, it.get("id"), it.get("status", ""))
+
+
+def reported_breaking(sess: Optional[Dict[str, Any]]) -> Set[str]:
+    """Change items this session was already shown (briefing, digest or Stop), as
+    `_breaking_key`s. Used so a resumed or compacted session doesn't warn twice."""
+    out: Set[str] = set(((sess or {}).get("breaking_shown")) or [])
+    for aid, snap in ((sess or {}).get("seen") or {}).items():
+        for key in (snap or {}).get("items") or []:
+            if key.startswith("changes:"):
+                out.add("{}|{}".format(aid, key))
+    return out
+
+
 def mark_all_seen(ctx: Ctx, sess: Dict[str, Any]) -> None:
     seen = sess.setdefault("seen", {})
     handoff_seen = sess.setdefault("handoff_seen", {})
@@ -1325,7 +1340,7 @@ def format_agent(doc: Dict[str, Any], me: Optional[str], cfg: Dict[str, Any],
     return out
 
 
-def briefing(ctx: Ctx) -> str:
+def briefing(ctx: Ctx, reported: Optional[Set[str]] = None) -> str:
     ident = ctx.ident
     me = ident["id"]
     room = ident["room"]
@@ -1372,7 +1387,8 @@ def briefing(ctx: Ctx) -> str:
         asks = [(d["id"], a) for d in others for a in d.get("asks") or []
                 if a.get("status") == "open" and a.get("to") in (me, "all")]
         for aid, a in asks:
-            L.append("! Open ASK for you from {} [{}#{}]: {}  -> answer with: reply {}#{} \"<answer>\" [--done]".format(
+            L.append("! Open ASK for you from {} [{}#{}]: {}  -> tell your human with a proposed "
+                     "answer; after they agree: reply {}#{} \"<answer>\" [--done]".format(
                 aid, aid, a.get("id"), a.get("text"), aid, a.get("id")))
         mine = ctx.load_me()
         if mine.get("handoff") and mine.get("status") != "done":
@@ -1384,10 +1400,17 @@ def briefing(ctx: Ctx) -> str:
         L.extend("  - {} ({})".format(x.get("text"), aid) for aid, x in decisions[-8:])
     breaking = [(d["id"], x) for d in others for x in d.get("changes") or []
                 if x.get("breaking") and within(x.get("at"), 86400)]
-    if breaking:
+    # on resume/compact the same session already warned its human about some of these
+    done = reported or set()
+    fresh = [(aid, x) for aid, x in breaking if _breaking_key(aid, x) not in done]
+    old = [(aid, x) for aid, x in breaking if _breaking_key(aid, x) in done]
+    if fresh:
         L.append("Breaking changes in the last 24h (check if your code is affected):")
-        L.extend("  - {} ({})".format(x.get("text"), aid) for aid, x in breaking)
+        L.extend("  - {} ({})".format(x.get("text"), aid) for aid, x in fresh)
         L.append(BREAKING_IMPACT_INSTR_SHORT)
+    if old:
+        L.append("Breaking changes already reported to your human in this session (don't repeat them): {}".format(
+            "; ".join("{} ({})".format(x.get("text"), aid) for aid, x in old)))
     if ident["role"] == "member":
         ready = [(d["id"], x) for d in others for x in d.get("changes") or []
                 if x.get("kind") == "ready" and within(x.get("at"), 7 * 86400)]
@@ -1407,17 +1430,21 @@ def briefing(ctx: Ctx) -> str:
         L.append('- When blocked: update --blocked-on "<what>". When done: update --status done --handoff "<state + next steps>"')
         L.append('- Share: learn "<text>" | decide "<text>" | change "<text>" [--breaking] | '
                  'announce "<what is ready + how to use it>" | ask <agent-id|all> "<text>"')
-        L.append('- Answer an ask (never answer with a new ask): reply <agent-id>#<ask-id> "<answer>" [--done]')
+        L.append('- Answer an ask (propose to your human first, then reply; never answer with a new ask): '
+                 'reply <agent-id>#<ask-id> "<answer>" [--done]')
         L.append("- Your edits are recorded automatically. Claim a whole area before a big refactor: claim <path/>")
+        L.append("- Run each team command on its own (no &&, ;, pipes or redirects) so it needs no "
+                 "permission prompt; avoid $ and backticks in the text.")
         if ctx.cfg.get("overlap_action") == "warn":
             overlap_rule = ("on an overlap warning, tell your human in one line and keep going with a minimal "
-                            "change (stop and ask only before refactoring that area); on a breaking change "
-                            "that affects your work, stop and ask your human")
+                            "change (stop and ask only before refactoring that area)")
         else:
-            overlap_rule = ("on an overlap or a breaking change that affects your work, stop and ask "
-                            "your human")
-        L.append("Reaction rules: apply learnings silently; follow decisions; {}; answer asks addressed "
-                 "to you; never edit another agent's file.".format(overlap_rule))
+            overlap_rule = "on an overlap, stop and ask your human"
+        breaking_rule = ("for every breaking change, start your answer with a one-line warning plus a "
+                         "quick impact check, and propose (don't apply) the fix")
+        ask_rule = "propose answers to asks addressed to you, reply after your human agrees"
+        L.append("Reaction rules: apply learnings silently; follow decisions; {}; {}; {}; never edit "
+                 "another agent's file.".format(overlap_rule, breaking_rule, ask_rule))
     return "\n".join(L)
 
 
@@ -1452,8 +1479,9 @@ def h_session_start(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     # write first, then one forced sync: publishes us and pulls everyone else
     ctx.save_me(doc, "session start", content=True, sync=True, force_sync=True)
     sid = str(data.get("session_id") or "default")
+    reported = reported_breaking(ctx.load_session(sid))  # resume/compact keep the session id
     sess = {"started": now_iso(), "seen": {}, "acks": [], "last_digest": now_iso()}
-    text = briefing(ctx)
+    text = briefing(ctx, reported)
     mark_all_seen(ctx, sess)
     ctx.save_session(sid, sess)
     ctx.cleanup_sessions()
@@ -1532,8 +1560,11 @@ def h_pre_edit(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def h_post_tool(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Records the edited path and throttled-syncs. No digest here (v0.3): updates
-    arrive on the next prompt, or at the end of the turn for breaking changes, via
-    the Stop hook."""
+    arrive on the next prompt, or at the end of the turn for incoming breaking
+    changes, via the Stop hook. On the first recorded edit of a turn, members
+    (never observers) with breaking_check on get a one-time reminder to announce
+    breaking changes before their final answer - this replaces a second message at
+    Stop, so the agent's real answer is never duplicated or swallowed."""
     ctx = Ctx(data.get("cwd"))
     if not ctx.ident:
         return None
@@ -1552,22 +1583,27 @@ def h_post_tool(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     sess = ctx.load_session(sid)
     if sess is None:
         return None
+    first_edit = False
     if rel:
         turn = sess.setdefault(
             "turn", {"started": sess.get("started") or now_iso(), "edits": [], "checked": False})
         edits = turn.setdefault("edits", [])
+        if not edits:
+            first_edit = True
         if rel not in edits:
             edits.append(rel)
             del edits[:-50]
         ctx.save_session(sid, sess)
+    if first_edit and ctx.ident["role"] == "member" and ctx.cfg.get("breaking_check", True):
+        return hook_output("PostToolUse", POST_EDIT_BREAKING_REMINDER)
     return None
 
 
 def h_stop(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """End-of-turn check, once per turn: surfaces breaking changes that arrived
-    during the task, and, if this session edited files, reminds it to announce
-    anything breaking before it answers. Returns a Stop-hook `block` with the
-    combined text, or None."""
+    during the task (the first-edit reminder in h_post_tool covers the agent's own
+    changes, so there's nothing else to add here). Returns a Stop-hook `block`
+    with the text, or None."""
     ctx = Ctx(data.get("cwd"))
     if not ctx.ident:
         return None
@@ -1586,17 +1622,6 @@ def h_stop(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if breaking_lines:
         parts.append("Incoming breaking changes:\n" + "\n".join(
             "- {}".format(l) for l in breaking_lines) + "\n\n" + STOP_INCOMING_INSTR)
-    if ctx.ident["role"] == "member" and ctx.cfg.get("breaking_check", True):
-        edits = turn.get("edits") or []
-        if edits:
-            started = turn.get("started") or sess.get("started") or ""
-            me_doc = ctx.load_me()
-            announced = any(str(c.get("at", "")) >= started for c in me_doc.get("changes") or [])
-            if not announced:
-                shown = edits[:5]
-                more = len(edits) - len(shown)
-                listing = ", ".join(shown) + (" (+{} more)".format(more) if more else "")
-                parts.append("You edited: {}\n{}".format(listing, STOP_OWN_EDIT_INSTR))
     turn["checked"] = True
     sess["turn"] = turn
     ctx.save_session(sid, sess)
@@ -1619,7 +1644,40 @@ def h_session_end(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
-SHELL_META = set(";&|<>`$\n\r\\")
+SHELL_META = set(";&|<>()$`\\")
+
+
+def _has_shell_injection(args: str) -> bool:
+    """Quote-aware scan of the arguments after the accepted script prefix: True
+    means the shell could do something other than pass a literal argument
+    (chaining, redirection, substitution, variables), so the call must not be
+    auto-approved. Outside quotes, any SHELL_META char or a bare newline/CR
+    rejects. Inside single quotes everything is literal. Inside double quotes
+    only `$` and backtick are dangerous (the shell still expands them there),
+    and a backslash escapes the next character. An unterminated quote at the
+    end also rejects (shlex/the real shell would need more input)."""
+    quote = None
+    i = 0
+    n = len(args)
+    while i < n:
+        ch = args[i]
+        if quote is None:
+            if ch in "'\"":
+                quote = ch
+            elif ch in SHELL_META or ch in "\n\r":
+                return True
+        elif quote == "'":
+            if ch == "'":
+                quote = None
+        else:  # quote == '"'
+            if ch == '"':
+                quote = None
+            elif ch == "\\":
+                i += 1  # skip the escaped character
+            elif ch in "$`":
+                return True
+        i += 1
+    return quote is not None
 
 
 def _room_cmd_needs_human(argv: List[str], cwd: Optional[str]) -> bool:
@@ -1655,19 +1713,22 @@ def _room_cmd_needs_human(argv: List[str], cwd: Optional[str]) -> bool:
 def h_pre_bash(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Auto-approve plain calls of this CLI so agents can report without a prompt.
 
-    Only the exact script path is accepted, and only when the command contains no
-    shell metacharacters (no chaining, redirection, substitution or variables), so
-    nothing else can ride along. Everything else goes through normal permissions.
-    A `room` call that touches policy (or bootstraps from a file) still needs an
-    explicit human "ask": returning None is not enough, since the skills'
-    allowed-tools would auto-approve it otherwise.
+    Only the exact script path is accepted, and only when the arguments can't make
+    the shell do anything but pass a literal string (see `_has_shell_injection`:
+    quote-aware, so `;`, `|`, `&`, `<`, `>` etc. inside a quoted argument are fine,
+    but chaining, redirection, substitution or variables outside quotes - or `$`/
+    backtick even inside double quotes - are not), so nothing else can ride along.
+    Everything else goes through normal permissions. A `room` call that touches
+    policy (or bootstraps from a file) still needs an explicit human "ask":
+    returning None is not enough, since the skills' allowed-tools would
+    auto-approve it otherwise.
     """
     cmd = str((data.get("tool_input") or {}).get("command") or "").strip()
     script = os.path.abspath(__file__)
     for prefix in ('python3 "{}" '.format(script), "python3 '{}' ".format(script),
                    "python3 {} ".format(script)):
         if cmd.startswith(prefix):
-            if any(ch in SHELL_META for ch in cmd):
+            if _has_shell_injection(cmd[len(prefix):]):
                 return None
             try:
                 argv = shlex.split(cmd[len(prefix):])
@@ -1683,8 +1744,24 @@ def h_pre_bash(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
+def h_pre_skill(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Auto-approve loading this plugin's own skills (e.g. team-sync:team-protocol)
+    once joined, so following the protocol never needs a permission prompt. No
+    network, no filesystem access beyond the identity check in Ctx."""
+    ctx = Ctx(data.get("cwd"))
+    if not ctx.ident:
+        return None
+    ti = data.get("tool_input") or {}
+    skill = ti.get("skill") or ti.get("name") or ti.get("command")
+    if isinstance(skill, str) and skill.startswith("team-sync:"):
+        return hook_output("PreToolUse", permissionDecision="allow",
+                           permissionDecisionReason="team-sync skill")
+    return None
+
+
 HOOKS = {
     "pre-bash": h_pre_bash,
+    "pre-skill": h_pre_skill,
     "session-start": h_session_start,
     "prompt": h_prompt,
     "pre-edit": h_pre_edit,
