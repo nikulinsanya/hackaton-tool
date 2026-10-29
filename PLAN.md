@@ -81,10 +81,10 @@ Design:
 Only needed when team-sync is used in repos other than this one.
 
 - [x] Install via marketplace instead of `--plugin-dir` (verified 2026-10-29 with the SSH URL; v0.4.3 installs and is enabled):
-      `claude plugin marketplace add ./` then `claude plugin install team-sync@smartdodos`.
+      `claude plugin marketplace add ./` then `claude plugin install team-sync@sanya`.
 - [ ] Copy `examples/project/claude-settings.json` to `.claude/settings.json` (with the real repo name)
       in a project repo so teammates get the plugin offered automatically.
-- [ ] Decide marketplace name and hosting.
+- [x] Marketplace name and hosting: `sanya`, hosted on GitLab (`git@gitlab.com:nikulinsanya/hackaton-tool.git`).
 
 ## v0.3: no dialogs, breaking-change warnings (done)
 

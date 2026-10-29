@@ -1,6 +1,6 @@
 {
   "extraKnownMarketplaces": {
-    "smartdodos": {
+    "sanya": {
       "source": {
         "source": "git",
         "url": "git@gitlab.com:nikulinsanya/hackaton-tool.git"
@@ -8,6 +8,6 @@
     }
   },
   "enabledPlugins": {
-    "team-sync@smartdodos": true
+    "team-sync@sanya": true
   }
 }

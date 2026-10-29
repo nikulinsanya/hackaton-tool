@@ -3,7 +3,7 @@
   "version": "0.4.3",
   "description": "Opt-in rooms where Claude Code agents share status, decisions, asks and file touches through a git branch, and warn each other before colliding. No server.",
   "author": {
-    "name": "SmartDodos"
+    "name": "Sanya"
   },
   "keywords": ["team", "coordination", "multi-agent", "status", "hackathon"]
 }
