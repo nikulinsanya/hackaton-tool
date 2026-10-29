@@ -34,7 +34,7 @@ import tempfile
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-VERSION = "0.4.5"
+VERSION = "0.4.6"
 SCHEMA = 1
 CONFIG_FILE = ".team-sync.json"
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -1926,6 +1926,72 @@ def _print_room(ctx: Ctx, room: Optional[str] = None) -> None:
             print(line)
 
 
+def list_rooms_info(ctx: Ctx) -> List[Dict[str, Any]]:
+    """Every room with at least one file on the team branch (room.json, a config
+    file, or an agent file), newest first by the latest `updated` seen in any
+    of its files."""
+    tip = ctx.store.tip()
+    files = ctx.store.list_files(tip, "rooms/") if tip else {}
+    updated: Dict[str, str] = {}
+    for path, raw in files.items():
+        parts = path.split("/")
+        if len(parts) < 2 or parts[0] != "rooms":
+            continue
+        room = parts[1]
+        updated.setdefault(room, "")
+        try:
+            d = json.loads(raw.decode("utf-8"))
+        except ValueError:
+            continue
+        if isinstance(d, dict):
+            u = str(d.get("updated") or "")
+            if u > updated[room]:
+                updated[room] = u
+    out = []
+    for room in sorted(updated):
+        docs = ctx.room_docs(room)
+        online = sorted(d["id"] for d in docs if d["_presence"] == "online")
+        eff = effective_config(ctx, room)
+        title_entry = eff.get("title")
+        goal_entry = eff.get("goal")
+        out.append({
+            "room": room,
+            "title": title_entry["value"] if title_entry else None,
+            "goal": goal_entry["value"] if goal_entry else None,
+            "online": online,
+            "agents": len(docs),
+            "updated": updated[room] or None,
+        })
+    out.sort(key=lambda r: r["updated"] or "", reverse=True)
+    return out
+
+
+def cmd_rooms(args: argparse.Namespace) -> int:
+    ctx = Ctx()
+    if not args.no_sync:
+        ctx.store.sync(force=True)
+    rooms = list_rooms_info(ctx)
+    if args.json:
+        print(json.dumps(rooms, indent=2, ensure_ascii=False))
+        return 0
+    if not rooms:
+        print("No rooms yet. A lead creates one with /team-sync:start <name>.")
+        return 0
+    for r in rooms:
+        parts = [r["room"]]
+        if r["title"]:
+            parts.append('"{}"'.format(r["title"]))
+        if r["goal"]:
+            parts.append("goal: {}".format(r["goal"]))
+        stats = "{} online".format(len(r["online"]))
+        if r["online"]:
+            stats += " ({})".format(", ".join(r["online"]))
+        stats += ", {} total".format(r["agents"])
+        parts.append("· " + stats)
+        print("  ".join(parts))
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     ctx = Ctx()
     if not args.no_sync:
@@ -2352,6 +2418,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("status", cmd_status, "show the room")
     sp.add_argument("--room")
     sp.add_argument("--all", action="store_true", help="all rooms")
+    sp.add_argument("--json", action="store_true")
+    sp.add_argument("--no-sync", action="store_true")
+
+    sp = add("rooms", cmd_rooms, "list every room on the team branch")
     sp.add_argument("--json", action="store_true")
     sp.add_argument("--no-sync", action="store_true")
 

@@ -888,6 +888,17 @@ class SessionTests(unittest.TestCase):
         out = self.e.team(self.sanya, "whoami", CLAUDE_TEAM_ROOM="hackathon-idea1").stdout
         self.assertEqual(json.loads(out)["room"], "hackathon-idea1")
 
+    def test_start_and_join_skills_wire_name_the_room(self):
+        # the lead names the room: /team-sync:start creates and joins it; /team-sync:join
+        # without a name falls back to listing rooms with `team rooms`
+        with open(os.path.join(PLUGIN_ROOT, "skills", "start", "SKILL.md"), encoding="utf-8") as f:
+            start_text = f.read()
+        self.assertIn("whoami", start_text)
+        self.assertIn("join", start_text)
+        with open(os.path.join(PLUGIN_ROOT, "skills", "join", "SKILL.md"), encoding="utf-8") as f:
+            join_text = f.read()
+        self.assertIn("rooms", join_text)
+
     # 11. -------------------------------------------------------- announce
 
     def test_announce_mid_turn_then_next_prompt(self):

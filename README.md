@@ -80,22 +80,30 @@ ask Claude in this repo to *render the diagrams* (or run `/render-diagrams`).
 
 ## Starting a hackathon
 
-1. **The lead, once per hackathon,** publishes the room's title, goal, rules and any custom fields:
+No room exists until a lead creates one: there is no silent default room.
+
+1. **The lead names the room, once per hackathon,** which creates it and joins the lead's
+   own agent to it:
    ```
    /team-sync:start hackathon --from examples/project/hackathon.json
    ```
-   Running it again on a configured room shows the room and offers to join or edit instead.
+   A free-text idea name works too (e.g. `/team-sync:start Idea S`): the room becomes its
+   slug, and the title defaults to the text as typed. Running it again on a configured room
+   shows the room and offers to join or edit instead.
 2. **Every participant** starts Claude Code with the plugin, one agent per worktree, and joins:
    ```bash
    claude -w frontend --plugin-dir <stable checkout>/plugins/team-sync
    ```
    ```
-   /team-sync:join hackathon --as frontend
+   /team-sync:join hackathon
    ```
-   Or put the room in the launch and skip the join: `CLAUDE_TEAM_ROOM=hackathon claude -w frontend --plugin-dir …`.
+   Or run `/team-sync:join` with no name to pick from the rooms that exist (`team rooms`).
+   Or put the room in the launch and skip the join: `CLAUDE_TEAM_ROOM=hackathon claude -w frontend --plugin-dir …`
+   (set that in `.claude/settings.json`'s `env` block for a repo that only ever has one room).
    Point `--plugin-dir` at a stable checkout (e.g. `main`), not the agent's own worktree, so an
    agent never runs its own half-edited engine.
-3. **Anyone** checks the room with `/team-sync:team`. Agents launched without a room stay invisible.
+3. **Anyone** checks the room with `/team-sync:team`, or every room with `team rooms`. Agents
+   launched without a room stay invisible.
 
 There are no approval dialogs for developers. The only one left is an agent trying to change
 room *policy*, because that affects everyone in the room.
@@ -104,8 +112,8 @@ room *policy*, because that affects everyone in the room.
 
 | Command | Who | What it does |
 |---|---|---|
-| `/team-sync:start [room]` | lead, once | create the room: title, goal, rules, custom fields |
-| `/team-sync:join <room> --as <name>` | anyone | put this agent in the room |
+| `/team-sync:start <idea or room name>` | lead, once | create the room (title, goal, rules, custom fields) and join it |
+| `/team-sync:join [room] [--as <name>]` | anyone | put this agent in the room; no name picks from `team rooms` |
 | `/team-sync:team` | anyone | who is active, on what, blocked, asks for you |
 | `/team-sync:announce <what is ready>` | developer | tell every agent something is ready and how to use it |
 | `/team-sync:handoff` | developer | write a handoff note for whoever continues this work |
@@ -143,7 +151,7 @@ announces breaking changes and finished work, and answers asks addressed to it.
    with an `env` block (`"CLAUDE_TEAM_ROOM": "<room>"`) to put every session in that repo into the room.
    That file alone does not install the plugin: Claude Code then loads it late or not at all (no
    `/team-sync:*` commands), so the install step above is still needed.
-3. Opt agents in with `/team-sync:join <room> --as <name>` (or `CLAUDE_TEAM_ROOM=<room>` at launch; the name defaults to the worktree folder).
+3. Opt agents in with `/team-sync:join <room>` (or `CLAUDE_TEAM_ROOM=<room>` at launch; the name defaults to the worktree folder). A lead must create the room first with `/team-sync:start <name>`.
 
 Requirements: git ≥ 2.20, python3 ≥ 3.8 (macOS: comes with the Xcode command line tools, which git needs anyway). Windows is untested.
 
@@ -154,7 +162,8 @@ You never need to type these; agents run them for you. They are useful for scrip
 
 ```
 team join <room> [--as NAME] [--role member|observer]    team leave | whoami | doctor
-team status [--all] [--json]                             team sync
+team rooms [--json]                                       team status [--all] [--json]
+team sync
 team update [--status idle|in_progress|blocked|done] [--working-on T] [--blocked-on T] [--unblock] [--handoff T]
 team learn T | decide T | change T [--breaking] | announce T
 team ask <agent-id|all> T | reply <agent>#<ask> T [--done] | close <ask-id>
@@ -206,7 +215,7 @@ plugin) and ask:
 
 | Ask Claude | What it does |
 |---|---|
-| "Run the tests." | the 64 end-to-end tests (about 3-4 minutes) |
+| "Run the tests." | the 70 end-to-end tests (about 3-4 minutes) |
 | "Validate the plugin." | checks the marketplace and plugin manifests |
 | "Render the diagrams." | renders `docs/how-it-works.html` to `docs/images/`, checks each image for collisions and fixes them (`/render-diagrams`) |
 | "Set up a sandbox to try it." | builds a throwaway origin with two clones and a worktree (`tools/sandbox.sh`) |

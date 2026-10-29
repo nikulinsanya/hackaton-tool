@@ -647,6 +647,55 @@ class TeamSyncTests(unittest.TestCase):
         self.assertEqual(git(self.sanya, "rev-parse", "team-sync"), before)
         self.assertEqual(git(self.e.origin, "rev-parse", "team-sync"), before)
 
+    # ---------------------------------------------------------------- rooms
+
+    def test_rooms_empty_branch(self):
+        self.e.team(self.sanya, "init")
+        out = self.e.team(self.sanya, "rooms").stdout
+        self.assertIn("No rooms yet. A lead creates one with /team-sync:start <name>.", out)
+        self.assertEqual(json.loads(self.e.team(self.sanya, "rooms", "--json").stdout), [])
+
+    def test_rooms_lists_config_only_and_agent_rooms_not_joined(self):
+        # a room created by `room create` with nobody ever joined still shows up
+        self.e.team(self.sanya, "room", "create", "config-only", "--title", "Config Only",
+                   "--goal", "Just config")
+        self.e.team(self.sanya, "join", "hackathon", "--as", "frontend")
+        self.e.team(self.anna, "join", "hackathon", "--as", "api")
+        self.e.team(self.anna, "sync")
+        self.e.team(self.sanya, "sync")
+        # not joined: still works
+        out = self.e.team(self.anna, "leave").stdout
+        self.assertIn("offline", out)
+        rooms = {r["room"]: r for r in json.loads(self.e.team(self.anna, "rooms", "--json").stdout)}
+        self.assertEqual(set(rooms), {"config-only", "hackathon"})
+        self.assertEqual(rooms["config-only"]["title"], "Config Only")
+        self.assertEqual(rooms["config-only"]["goal"], "Just config")
+        self.assertEqual(rooms["config-only"]["online"], [])
+        self.assertEqual(rooms["config-only"]["agents"], 0)
+        # anna just left (offline), sanya-frontend still online
+        self.assertEqual(rooms["hackathon"]["online"], ["sanya-frontend"])
+        self.assertEqual(rooms["hackathon"]["agents"], 2)
+
+    def test_rooms_newest_first(self):
+        self.e.team(self.sanya, "room", "create", "old-room", "--title", "Old")
+        self.e.team(self.sanya, "room", "create", "new-room", "--title", "New",
+                   TEAM_SYNC_NOW="2099-01-01T00:00:00Z")
+        rooms = [r["room"] for r in json.loads(self.e.team(self.sanya, "rooms", "--json").stdout)]
+        self.assertEqual(rooms, ["new-room", "old-room"])
+
+    def test_rooms_plain_output_format(self):
+        self.e.team(self.sanya, "room", "create", "idea-s", "--title", "Idea S",
+                   "--goal", "Login page")
+        self.e.team(self.sanya, "join", "idea-s", "--as", "frontend")
+        out = self.e.team(self.sanya, "rooms").stdout.strip()
+        self.assertEqual(out, 'idea-s  "Idea S"  goal: Login page  · 1 online (sanya-frontend), 1 total')
+
+    def test_rooms_pre_bash_auto_allowed(self):
+        script = os.path.abspath(TEAM)
+        out = self.e.hook(self.sanya, "pre-bash", {"tool_name": "Bash",
+                                                   "tool_input": {"command": 'python3 "{}" rooms'.format(script)}})
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "allow")
+
     # --------------------------------------------------------------- announce
 
     def test_announce_stores_ready_item(self):

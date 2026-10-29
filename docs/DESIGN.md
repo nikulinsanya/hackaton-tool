@@ -106,6 +106,10 @@ Resolution order (first match wins):
 
 Agent name defaults to the worktree folder name, so "one agent per worktree" needs no naming.
 
+**No room is implied anywhere above `auto_observe`.** A room exists only once a lead creates
+one (`/team-sync:start <name>` / `team room create <room>`); `/team-sync:join` with no name
+lists the rooms that exist (`team rooms`) and asks which one, it never guesses a default.
+
 Known limitation: two Claude sessions in the *same* worktree share one identity.
 
 ## 5. Hook lifecycle

@@ -23,6 +23,8 @@
   (online, publish, briefing). Found in the first manual test in test-hackathon.
 - v0.4.5: `/team-sync:start` without a room name configures the room the agent is in (via
   `whoami`) instead of silently using `hackathon`; found in the same manual test.
+- v0.4.6: the lead names the room: `/team-sync:start <name>` creates and joins it;
+  `/team-sync:join` without a name picks from `team rooms`.
 - `claude plugin validate` passes for the marketplace and the plugin.
 - Verified with real `claude -p --plugin-dir` sessions in the sandbox:
   - the SessionStart briefing reaches the agent (it quoted it and listed its open asks);
