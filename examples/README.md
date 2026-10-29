@@ -4,7 +4,7 @@ Copy these into the **project repo** whose agents should coordinate (not into th
 
 | File | Goes to | Purpose |
 |---|---|---|
-| `project/claude-settings.json` | `<project>/.claude/settings.json` (committed) | Everyone who opens the project is offered the marketplace and gets `team-sync` enabled. Points at `https://gitlab.com/nikulinsanya/hackaton-tool.git`; change the URL if you fork it. |
+| `project/claude-settings.json` | `<project>/.claude/settings.json` (committed) | Everyone who opens the project is offered the marketplace and gets `team-sync` enabled. Points at `git@gitlab.com:nikulinsanya/hackaton-tool.git` (SSH, so a private repo works with your SSH key); change the URL if you fork it. |
 | `project/.team-sync.json` | `<project>/.team-sync.json` (committed) | Shared settings. All keys optional; these are the defaults. Set `"auto_observe": "hackathon"` to make every non-joined session in the repo an observer. |
 | `worktree/claude-settings.local.json` | `<worktree>/.claude/settings.local.json` (not committed) | Opt one worktree's agent into a room without running `/team-sync:join`. |
 

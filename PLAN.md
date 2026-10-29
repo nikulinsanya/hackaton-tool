@@ -80,7 +80,7 @@ Design:
 
 Only needed when team-sync is used in repos other than this one.
 
-- [ ] Install via marketplace instead of `--plugin-dir`:
+- [x] Install via marketplace instead of `--plugin-dir` (verified 2026-10-29 with the SSH URL; v0.4.3 installs and is enabled):
       `claude plugin marketplace add ./` then `claude plugin install team-sync@smartdodos`.
 - [ ] Copy `examples/project/claude-settings.json` to `.claude/settings.json` (with the real repo name)
       in a project repo so teammates get the plugin offered automatically.

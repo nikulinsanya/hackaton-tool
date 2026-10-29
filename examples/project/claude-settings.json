@@ -3,7 +3,7 @@
     "smartdodos": {
       "source": {
         "source": "git",
-        "url": "https://gitlab.com/nikulinsanya/hackaton-tool.git"
+        "url": "git@gitlab.com:nikulinsanya/hackaton-tool.git"
       }
     }
   },

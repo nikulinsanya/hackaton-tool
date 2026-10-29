@@ -133,7 +133,7 @@ announces breaking changes and finished work, and answers asks addressed to it.
 
 1. The tool lives at `git@gitlab.com:nikulinsanya/hackaton-tool.git` (private; you need read access).
 2. In the project repo, copy `examples/project/claude-settings.json` to `.claude/settings.json` and optionally `.team-sync.json`, and commit. Everyone who opens the project in Claude Code gets the plugin offered.
-   Or per person, inside Claude Code: `/plugin marketplace add https://gitlab.com/nikulinsanya/hackaton-tool.git`, then `/plugin install team-sync@smartdodos`.
+   Or per person: `claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git`, then `claude plugin install team-sync@smartdodos` (or the same with `/plugin` inside Claude Code), and restart Claude Code. Installed this way the plugin is active in every session but does nothing until the agent joins a room. Update later with `claude plugin marketplace update smartdodos` and `claude plugin update team-sync@smartdodos`.
 3. Opt agents in with `/team-sync:join <room> --as <name>` (or `CLAUDE_TEAM_ROOM=<room>` at launch; the name defaults to the worktree folder).
 
 Requirements: git ≥ 2.20, python3 ≥ 3.8 (macOS: comes with the Xcode command line tools, which git needs anyway). Windows is untested.
