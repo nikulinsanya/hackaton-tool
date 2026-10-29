@@ -6,16 +6,28 @@ running two agents in two worktrees. Run with:
 
     python3 -m unittest discover -s tests -v
 """
+import atexit
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEAM = os.path.join(HERE, "..", "plugins", "team-sync", "scripts", "team.py")
+
+# Names baked into the per-process template (see _build_template): the origin
+# plus the clones/worktree every test's setUp asks for. Env.clone()/
+# Env.worktree() recognize these and skip straight to the copied directory
+# instead of re-running git; any other name still goes through real git calls.
+_TEMPLATE_CLONES = ("sanya", "anna")
+_TEMPLATE_WORKTREES = {"sanya-tests-wt": "sanya"}
+
+_TEMPLATE_LOCK = threading.Lock()
+_TEMPLATE_DIR = None
 
 
 def git(cwd, *args):
@@ -23,40 +35,86 @@ def git(cwd, *args):
                           stderr=subprocess.PIPE, text=True).stdout.strip()
 
 
+def _ident(repo, name):
+    git(repo, "config", "user.email", name + "@example.com")
+    git(repo, "config", "user.name", name)
+
+
+def _build_template():
+    """Builds the origin + seed commit + standard clones/worktree once per
+    process. Every Env() then copies this directory instead of repeating all
+    of this git plumbing per test."""
+    tmp = tempfile.mkdtemp(prefix="team-sync-template-")
+    os.makedirs(os.path.join(tmp, "home"))
+    origin = os.path.join(tmp, "origin.git")
+    git(tmp, "init", "--bare", "-q", "--initial-branch=main", origin)
+    seed = os.path.join(tmp, "seed")
+    git(tmp, "init", "-q", "-b", "main", seed)
+    _ident(seed, "seed")
+    os.makedirs(os.path.join(seed, "src", "auth"))
+    os.makedirs(os.path.join(seed, "src", "api"))
+    for f in ("src/auth/login.ts", "src/auth/session.ts", "src/api/routes.ts", "README.md"):
+        with open(os.path.join(seed, f), "w") as fh:
+            fh.write("// " + f + "\n")
+    git(seed, "add", "-A")
+    git(seed, "commit", "-q", "-m", "init")
+    git(seed, "remote", "add", "origin", origin)
+    git(seed, "push", "-q", "origin", "main")
+    shutil.rmtree(seed)
+    for name in _TEMPLATE_CLONES:
+        path = os.path.join(tmp, name)
+        git(tmp, "clone", "-q", origin, path)
+        _ident(path, name)
+    for wt_name, repo_name in _TEMPLATE_WORKTREES.items():
+        repo = os.path.join(tmp, repo_name)
+        wt_path = os.path.join(tmp, wt_name)
+        git(repo, "worktree", "add", "-q", "-b", wt_name, wt_path)
+    return tmp
+
+
+def _get_template():
+    global _TEMPLATE_DIR
+    with _TEMPLATE_LOCK:
+        if _TEMPLATE_DIR is None:
+            _TEMPLATE_DIR = _build_template()
+            atexit.register(shutil.rmtree, _TEMPLATE_DIR, ignore_errors=True)
+        return _TEMPLATE_DIR
+
+
 class Env:
-    """A sandbox with origin + clones + worktrees."""
+    """A sandbox with origin + clones + worktrees, copied from a per-process
+    template so each test pays only a shutil.copytree plus a couple of path
+    fixups instead of re-running git init/clone/push/worktree add."""
 
     def __init__(self):
+        template = _get_template()
         self.tmp = tempfile.mkdtemp(prefix="team-sync-test-")
+        shutil.rmtree(self.tmp)  # copytree wants to create the destination itself
+        shutil.copytree(template, self.tmp)
         self.home = os.path.join(self.tmp, "home")
-        os.makedirs(self.home)
         self.origin = os.path.join(self.tmp, "origin.git")
-        git(self.tmp, "init", "--bare", "-q", "--initial-branch=main", self.origin)
-        seed = os.path.join(self.tmp, "seed")
-        git(self.tmp, "init", "-q", "-b", "main", seed)
-        self._ident(seed, "seed")
-        os.makedirs(os.path.join(seed, "src", "auth"))
-        os.makedirs(os.path.join(seed, "src", "api"))
-        for f in ("src/auth/login.ts", "src/auth/session.ts", "src/api/routes.ts", "README.md"):
-            with open(os.path.join(seed, f), "w") as fh:
-                fh.write("// " + f + "\n")
-        git(seed, "add", "-A")
-        git(seed, "commit", "-q", "-m", "init")
-        git(seed, "remote", "add", "origin", self.origin)
-        git(seed, "push", "-q", "origin", "main")
+        for name in _TEMPLATE_CLONES:
+            git(os.path.join(self.tmp, name), "remote", "set-url", "origin", self.origin)
+        for wt_name, repo_name in _TEMPLATE_WORKTREES.items():
+            repo = os.path.join(self.tmp, repo_name)
+            wt_path = os.path.join(self.tmp, wt_name)
+            git(repo, "worktree", "repair", wt_path)
 
     def _ident(self, repo, name):
-        git(repo, "config", "user.email", name + "@example.com")
-        git(repo, "config", "user.name", name)
+        _ident(repo, name)
 
     def clone(self, name):
         path = os.path.join(self.tmp, name)
+        if name in _TEMPLATE_CLONES:
+            return path  # already present (and remote-fixed) from the template
         git(self.tmp, "clone", "-q", self.origin, path)
         self._ident(path, name)
         return path
 
     def worktree(self, repo, name):
         path = os.path.join(self.tmp, name)
+        if name in _TEMPLATE_WORKTREES:
+            return path  # already present (and repaired) from the template
         git(repo, "worktree", "add", "-q", "-b", name, path)
         return path
 

@@ -20,9 +20,10 @@ architecture and `PLAN.md` for what to do next. Start with PLAN.md Milestone 1.
 ## Commands
 
 ```bash
-python3 -m unittest discover -s tests -v       # all tests (~2 min)
+python3 tools/run-tests.py                       # all tests, parallel, cached sandbox (~2 min)
+python3 tools/run-tests.py -k SessionTests -v    # filter by substring/fnmatch, verbose
+python3 -m unittest discover -s tests -v       # same tests, serial (~6-7 min) - still works
 python3 -m unittest tests.test_team.TeamSyncTests.test_overlap_ask_once_then_quiet
-python3 -m unittest discover -s tests -v -k SessionTests     # just the session-sim suite (~1 min)
 claude plugin validate .                         # marketplace + plugin manifests
 bash tools/sandbox.sh /tmp/ts-sandbox            # playground, prints launch commands
 claude --plugin-dir plugins/team-sync            # run Claude Code with the local plugin
