@@ -80,33 +80,98 @@ ask Claude in this repo to *render the diagrams* (or run `/render-diagrams`).
 
 ## Starting a hackathon
 
-No room exists until a lead creates one: there is no silent default room.
+No room exists until a lead creates one. The lead names it after the idea; everyone else joins it.
+Below, the lead is Sanya and the project repo is `test-hackathon`; use your own project repo.
 
-1. **The lead names the room, once per hackathon,** which creates it and joins the lead's
-   own agent to it:
-   ```
-   /team-sync:start hackathon --from examples/project/hackathon.json
-   ```
-   A free-text idea name works too (e.g. `/team-sync:start Idea S`): the room becomes its
-   slug, and the title defaults to the text as typed. Running it again on a configured room
-   shows the room and offers to join or edit instead.
-2. **Every participant** starts Claude Code with the plugin, one agent per worktree, and joins:
-   ```bash
-   claude -w frontend --plugin-dir <stable checkout>/plugins/team-sync
-   ```
-   ```
-   /team-sync:join hackathon
-   ```
-   Or run `/team-sync:join` with no name to pick from the rooms that exist (`team rooms`).
-   Or put the room in the launch and skip the join: `CLAUDE_TEAM_ROOM=hackathon claude -w frontend --plugin-dir …`
-   (set that in `.claude/settings.json`'s `env` block for a repo that only ever has one room).
-   Point `--plugin-dir` at a stable checkout (e.g. `main`), not the agent's own worktree, so an
-   agent never runs its own half-edited engine.
-3. **Anyone** checks the room with `/team-sync:team`, or every room with `team rooms`. Agents
-   launched without a room stay invisible.
+### Lead laptop
 
-There are no approval dialogs for developers. The only one left is an agent trying to change
-room *policy*, because that affects everyone in the room.
+In a terminal, one after another:
+
+```bash
+claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git
+claude plugin install team-sync@tellet
+git clone git@gitlab.com:nikulinsanya/test-hackathon.git
+cd test-hackathon
+claude
+```
+
+Then in Claude:
+
+```
+/team-sync:start Idea S
+```
+
+Claude asks for the goal, a description and any rules, shows a summary to confirm, then creates
+room `idea-s` (title "Idea S") and puts your agent in it. It ends by telling you how others join.
+Check:
+
+```
+/team-sync:team
+```
+
+You should see the room with its goal and rules, and your agent online.
+
+### Developer laptop
+
+In a terminal, one after another:
+
+```bash
+claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git
+claude plugin install team-sync@tellet
+git clone git@gitlab.com:nikulinsanya/test-hackathon.git
+cd test-hackathon
+claude
+```
+
+Then in Claude:
+
+```
+/team-sync:join
+```
+
+Claude lists the rooms that exist, for example:
+
+```
+idea-s  "Idea S"  goal: Login page with a simple test  · 1 online (sanya-test-hackathon), 1 total
+```
+
+Pick the room and give your agent a name, or do both in one go: `/team-sync:join idea-s --as dev2`.
+A name matters when your laptop uses the same git email as someone else's. Check with
+`/team-sync:team`; behind the scenes Claude reads a room like this:
+
+```
+Room "idea-s" "Idea S" - goal: Login page with a simple test
+  rules:
+    - Announce breaking API changes [sanya#r1]
+  * sanya-dev2 [in_progress] login form  (just now)
+  * sanya-test-hackathon [in_progress] auth API  (just now)
+```
+
+### Then just work
+
+Talk to your agent as usual (see [Talk to your agent](#talk-to-your-agent)). For example:
+
+- Lead: "Change getUser() in src/auth/user.ts to return null instead of throwing." The agent
+  announces it as a breaking change.
+- Dev, on the next request: the answer opens with a warning about getUser() and where the dev's
+  code uses it.
+- Lead: `/team-sync:announce Login is ready`. The dev's agent mentions it in its next answer.
+
+Laptops sync through git at most once a minute; if news hasn't arrived yet, send the next message a
+minute later. There are no approval dialogs for developers. The only one left is an agent trying to
+change room *policy*, because that affects everyone in the room.
+
+### Already set up before?
+
+- Plugin installed earlier: replace the first two commands with
+  `claude plugin marketplace update tellet` and `claude plugin update team-sync@tellet`.
+- Repo already cloned: replace `git clone ...` with `cd <repo>` and `git pull`.
+
+### Several agents on one laptop
+
+Give each agent its own worktree, so they don't edit the same files on disk:
+`claude -w frontend`, then `/team-sync:join idea-s --as frontend`. A repo that only ever has one room
+can pin it for every session with `"env": {"CLAUDE_TEAM_ROOM": "<room>"}` in its `.claude/settings.json`.
 
 ## Slash commands
 
