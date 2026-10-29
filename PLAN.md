@@ -21,6 +21,8 @@
 - v0.4.4: a plugin enabled through a repo's `.claude/settings.json` is loaded after the session
   starts, so its SessionStart hook never fires; the first prompt now does the session-start work
   (online, publish, briefing). Found in the first manual test in test-hackathon.
+- v0.4.5: `/team-sync:start` without a room name configures the room the agent is in (via
+  `whoami`) instead of silently using `hackathon`; found in the same manual test.
 - `claude plugin validate` passes for the marketplace and the plugin.
 - Verified with real `claude -p --plugin-dir` sessions in the sandbox:
   - the SessionStart briefing reaches the agent (it quoted it and listed its open asks);

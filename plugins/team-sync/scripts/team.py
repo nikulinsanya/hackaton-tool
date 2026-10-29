@@ -34,7 +34,7 @@ import tempfile
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-VERSION = "0.4.4"
+VERSION = "0.4.5"
 SCHEMA = 1
 CONFIG_FILE = ".team-sync.json"
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}

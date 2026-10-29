@@ -878,6 +878,16 @@ class SessionTests(unittest.TestCase):
         self.assertIn("disable-model-invocation: true", text)
         self.assertIn('Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/team.py" *)', text)
 
+    def test_start_skill_defaults_to_current_room(self):
+        # /team-sync:start without a room once configured "hackathon" while the agent was in
+        # the room from the repo settings; the skill must resolve the room via whoami
+        with open(os.path.join(PLUGIN_ROOT, "skills", "start", "SKILL.md"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("whoami", text)
+        self.assertNotIn("default `hackathon`", text)
+        out = self.e.team(self.sanya, "whoami", CLAUDE_TEAM_ROOM="hackathon-idea1").stdout
+        self.assertEqual(json.loads(out)["room"], "hackathon-idea1")
+
     # 11. -------------------------------------------------------- announce
 
     def test_announce_mid_turn_then_next_prompt(self):

@@ -17,9 +17,15 @@ or `CLAUDE_TEAM_ROOM=<room> claude ...`) - they should not run `/team-sync:start
 Run each `team.py` command on its own (no `&&`, `;`, pipes or redirects): that is what lets
 it run without a permission prompt.
 
-1. Parse `$ARGUMENTS`: an optional room name (default `hackathon`) and an optional
-   `--from <file>` pointing at a template JSON file (the shape `room export` prints:
+1. Parse `$ARGUMENTS`: an optional room name and an optional `--from <file>` pointing at
+   a template JSON file (the shape `room export` prints:
    `{"title", "description", "goal", "rules": [...], "policy": {...}, "fields": {...}}`).
+   **Which room:** run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/team.py" whoami`.
+   - No room name given: use the `room` from `whoami` (the room this agent is already in, e.g.
+     set by the repo's settings). Only if this agent is in no room, ask the user for a name
+     (suggest `hackathon`). Never fall back to a default silently.
+   - A room name given that differs from the `whoami` room: tell the user this agent is in
+     `<whoami room>` and ask which room they mean before creating anything.
 
 2. **Check whether the room is already configured:**
    `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/team.py" room show --room <room> --json`.

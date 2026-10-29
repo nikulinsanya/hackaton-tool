@@ -206,7 +206,7 @@ plugin) and ask:
 
 | Ask Claude | What it does |
 |---|---|
-| "Run the tests." | the 63 end-to-end tests (about 3-4 minutes) |
+| "Run the tests." | the 64 end-to-end tests (about 3-4 minutes) |
 | "Validate the plugin." | checks the marketplace and plugin manifests |
 | "Render the diagrams." | renders `docs/how-it-works.html` to `docs/images/`, checks each image for collisions and fixes them (`/render-diagrams`) |
 | "Set up a sandbox to try it." | builds a throwaway origin with two clones and a worktree (`tools/sandbox.sh`) |
