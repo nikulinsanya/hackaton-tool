@@ -18,6 +18,9 @@
 - v0.4.3: a resumed or compacted session doesn't repeat breaking-change warnings it already gave;
   the announce/start skills run git and team commands one per call. Re-run of the real-Claude
   scenario after v0.4.2: all 10 steps pass, no permission prompts, one answer per turn.
+- v0.4.4: a plugin enabled through a repo's `.claude/settings.json` is loaded after the session
+  starts, so its SessionStart hook never fires; the first prompt now does the session-start work
+  (online, publish, briefing). Found in the first manual test in test-hackathon.
 - `claude plugin validate` passes for the marketplace and the plugin.
 - Verified with real `claude -p --plugin-dir` sessions in the sandbox:
   - the SessionStart briefing reaches the agent (it quoted it and listed its open asks);

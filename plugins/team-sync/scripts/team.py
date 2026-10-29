@@ -34,7 +34,7 @@ import tempfile
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-VERSION = "0.4.3"
+VERSION = "0.4.4"
 SCHEMA = 1
 CONFIG_FILE = ".team-sync.json"
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -1470,21 +1470,28 @@ def maybe_heartbeat(ctx: Ctx) -> None:
         ctx.save_me(doc, "heartbeat", content=content, sync=False)
 
 
-def h_session_start(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    ctx = Ctx(data.get("cwd"))
-    if not ctx.ident:
-        return None
+def begin_session(ctx: Ctx, sid: str) -> Tuple[Dict[str, Any], str]:
+    """Mark this agent online, publish it, and build the briefing. Run by SessionStart,
+    and by the first prompt when SessionStart never fired for this session (a plugin
+    enabled through project settings is loaded after the session has started)."""
     doc = ctx.load_me()
     doc["state"] = "online"
     # write first, then one forced sync: publishes us and pulls everyone else
     ctx.save_me(doc, "session start", content=True, sync=True, force_sync=True)
-    sid = str(data.get("session_id") or "default")
     reported = reported_breaking(ctx.load_session(sid))  # resume/compact keep the session id
     sess = {"started": now_iso(), "seen": {}, "acks": [], "last_digest": now_iso()}
     text = briefing(ctx, reported)
     mark_all_seen(ctx, sess)
     ctx.save_session(sid, sess)
     ctx.cleanup_sessions()
+    return sess, text
+
+
+def h_session_start(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    ctx = Ctx(data.get("cwd"))
+    if not ctx.ident:
+        return None
+    _, text = begin_session(ctx, str(data.get("session_id") or "default"))
     return hook_output("SessionStart", text)
 
 
@@ -1502,15 +1509,13 @@ def h_prompt(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     ctx = Ctx(data.get("cwd"))
     if not ctx.ident:
         return None
-    ctx.store.sync()
-    maybe_heartbeat(ctx)
     sid = str(data.get("session_id") or "default")
     sess = ctx.load_session(sid)
-    if sess is None:  # joined mid-session, or plugin enabled mid-session
-        sess = {"started": now_iso(), "seen": {}, "acks": []}
-        text = briefing(ctx)
-        mark_all_seen(ctx, sess)
+    if sess is None:  # SessionStart never ran: joined mid-session, or plugin loaded late
+        sess, text = begin_session(ctx, sid)
     else:
+        ctx.store.sync()
+        maybe_heartbeat(ctx)
         lines = digest(ctx, sess)
         text = _digest_text(ctx, lines) if lines else None
     sess["last_digest"] = now_iso()

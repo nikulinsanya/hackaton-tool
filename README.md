@@ -132,8 +132,17 @@ announces breaking changes and finished work, and answers asks addressed to it.
 ## Use it in a real project
 
 1. The tool lives at `git@gitlab.com:nikulinsanya/hackaton-tool.git` (private; you need read access).
-2. In the project repo, copy `examples/project/claude-settings.json` to `.claude/settings.json` and optionally `.team-sync.json`, and commit. Everyone who opens the project in Claude Code gets the plugin offered.
-   Or per person: `claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git`, then `claude plugin install team-sync@tellet` (or the same with `/plugin` inside Claude Code), and restart Claude Code. Installed this way the plugin is active in every session but does nothing until the agent joins a room. Update later with `claude plugin marketplace update tellet` and `claude plugin update team-sync@tellet`.
+2. Each person installs the plugin once per laptop, then restarts Claude Code:
+   ```bash
+   claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git
+   claude plugin install team-sync@tellet
+   ```
+   It is then active in every session but does nothing until the agent joins a room. Update later with
+   `claude plugin marketplace update tellet` and `claude plugin update team-sync@tellet`.
+   Optionally commit `examples/project/claude-settings.json` as the project's `.claude/settings.json`,
+   with an `env` block (`"CLAUDE_TEAM_ROOM": "<room>"`) to put every session in that repo into the room.
+   That file alone does not install the plugin: Claude Code then loads it late or not at all (no
+   `/team-sync:*` commands), so the install step above is still needed.
 3. Opt agents in with `/team-sync:join <room> --as <name>` (or `CLAUDE_TEAM_ROOM=<room>` at launch; the name defaults to the worktree folder).
 
 Requirements: git ≥ 2.20, python3 ≥ 3.8 (macOS: comes with the Xcode command line tools, which git needs anyway). Windows is untested.
@@ -197,7 +206,7 @@ plugin) and ask:
 
 | Ask Claude | What it does |
 |---|---|
-| "Run the tests." | the 62 end-to-end tests (about 3-4 minutes) |
+| "Run the tests." | the 63 end-to-end tests (about 3-4 minutes) |
 | "Validate the plugin." | checks the marketplace and plugin manifests |
 | "Render the diagrams." | renders `docs/how-it-works.html` to `docs/images/`, checks each image for collisions and fixes them (`/render-diagrams`) |
 | "Set up a sandbox to try it." | builds a throwaway origin with two clones and a worktree (`tools/sandbox.sh`) |

@@ -474,6 +474,22 @@ class SessionTests(unittest.TestCase):
         r = s.prompt("now what")
         self.assertIn("You are agent", r.context)
 
+    def test_first_prompt_without_session_start_publishes_agent(self):
+        # a plugin enabled through project settings loads after the session started,
+        # so SessionStart never fires: the first prompt must brief AND publish the agent
+        s = self.session(self.sanya, "late-plugin", CLAUDE_TEAM_ROOM="hackathon",
+                         CLAUDE_TEAM_AGENT="frontend")
+        r = s.prompt("hi")
+        self.assertIn("You are agent", r.context)
+        doc = branch_doc(self.e.origin, "hackathon", "sanya-frontend")
+        self.assertIsNotNone(doc)
+        self.assertEqual(doc["state"], "online")
+        log = git(self.sanya, "log", "--format=%s", "team-sync")
+        self.assertIn("sanya-frontend: session start", log)
+        # the second prompt is an ordinary digest, not a second briefing
+        r = s.prompt("again")
+        self.assertNotIn("You are agent", r.context)
+
     # 6. -------------------------------------------------------- worktree layout
 
     def test_claude_code_worktree_layout(self):
