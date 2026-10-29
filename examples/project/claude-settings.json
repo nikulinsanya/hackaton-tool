@@ -1,6 +1,6 @@
 {
   "extraKnownMarketplaces": {
-    "sanya": {
+    "tellet": {
       "source": {
         "source": "git",
         "url": "git@gitlab.com:nikulinsanya/hackaton-tool.git"
@@ -8,6 +8,6 @@
     }
   },
   "enabledPlugins": {
-    "team-sync@sanya": true
+    "team-sync@tellet": true
   }
 }

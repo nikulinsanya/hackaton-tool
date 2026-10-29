@@ -133,7 +133,7 @@ announces breaking changes and finished work, and answers asks addressed to it.
 
 1. The tool lives at `git@gitlab.com:nikulinsanya/hackaton-tool.git` (private; you need read access).
 2. In the project repo, copy `examples/project/claude-settings.json` to `.claude/settings.json` and optionally `.team-sync.json`, and commit. Everyone who opens the project in Claude Code gets the plugin offered.
-   Or per person: `claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git`, then `claude plugin install team-sync@sanya` (or the same with `/plugin` inside Claude Code), and restart Claude Code. Installed this way the plugin is active in every session but does nothing until the agent joins a room. Update later with `claude plugin marketplace update sanya` and `claude plugin update team-sync@sanya`.
+   Or per person: `claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git`, then `claude plugin install team-sync@tellet` (or the same with `/plugin` inside Claude Code), and restart Claude Code. Installed this way the plugin is active in every session but does nothing until the agent joins a room. Update later with `claude plugin marketplace update tellet` and `claude plugin update team-sync@tellet`.
 3. Opt agents in with `/team-sync:join <room> --as <name>` (or `CLAUDE_TEAM_ROOM=<room>` at launch; the name defaults to the worktree folder).
 
 Requirements: git ≥ 2.20, python3 ≥ 3.8 (macOS: comes with the Xcode command line tools, which git needs anyway). Windows is untested.
@@ -168,7 +168,7 @@ field name.
 ## Repo layout
 
 ```
-.claude-plugin/marketplace.json        marketplace "sanya" (this repo)
+.claude-plugin/marketplace.json        marketplace "tellet" (this repo)
 plugins/team-sync/
   .claude-plugin/plugin.json
   hooks/hooks.json                     SessionStart, UserPromptSubmit, Pre/PostToolUse, Stop, SessionEnd

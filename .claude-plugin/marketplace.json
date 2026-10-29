@@ -1,6 +1,6 @@
 {
-  "name": "sanya",
-  "description": "Sanya's Claude Code plugins",
+  "name": "tellet",
+  "description": "Claude Code plugins for the tellet hackathon",
   "owner": {
     "name": "Sanya Nikulin"
   },
