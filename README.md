@@ -81,7 +81,8 @@ ask Claude in this repo to *render the diagrams* (or run `/render-diagrams`).
 ## Starting a hackathon
 
 No room exists until a lead creates one. The lead names it after the idea; everyone else joins it.
-Below, the lead is Sanya and the project repo is `test-hackathon`; use your own project repo.
+Replace `<project-repo-url>` with your project's git URL and `<project-folder>` with the folder it
+clones into. In the examples the lead is `sanya` and the folder is `my-project`.
 
 ### Lead laptop
 
@@ -90,8 +91,8 @@ In a terminal, one after another:
 ```bash
 claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git
 claude plugin install team-sync@tellet
-git clone git@gitlab.com:nikulinsanya/test-hackathon.git
-cd test-hackathon
+git clone <project-repo-url>
+cd <project-folder>
 claude
 ```
 
@@ -118,8 +119,8 @@ In a terminal, one after another:
 ```bash
 claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git
 claude plugin install team-sync@tellet
-git clone git@gitlab.com:nikulinsanya/test-hackathon.git
-cd test-hackathon
+git clone <project-repo-url>
+cd <project-folder>
 claude
 ```
 
@@ -132,7 +133,7 @@ Then in Claude:
 Claude lists the rooms that exist, for example:
 
 ```
-idea-s  "Idea S"  goal: Login page with a simple test  · 1 online (sanya-test-hackathon), 1 total
+idea-s  "Idea S"  goal: Login page with a simple test  · 1 online (sanya-my-project), 1 total
 ```
 
 Pick the room and give your agent a name, or do both in one go: `/team-sync:join idea-s --as dev2`.
@@ -144,7 +145,7 @@ Room "idea-s" "Idea S" - goal: Login page with a simple test
   rules:
     - Announce breaking API changes [sanya#r1]
   * sanya-dev2 [in_progress] login form  (just now)
-  * sanya-test-hackathon [in_progress] auth API  (just now)
+  * sanya-my-project [in_progress] auth API  (just now)
 ```
 
 ### Then just work
