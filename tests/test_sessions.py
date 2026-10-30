@@ -877,6 +877,22 @@ class SessionTests(unittest.TestCase):
             text = f.read()
         self.assertIn("disable-model-invocation: true", text)
         self.assertIn('Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/team.py" *)', text)
+        # found in a real two-laptop test: announcing unpushed work leaves the other
+        # agent with nothing to fetch, so both the /team-sync:announce skill and the
+        # team-protocol reaction rules must say to check it's pushed first
+        self.assertIn("pushed", text)
+        self.assertIn("origin/<branch>..HEAD", text)
+        with open(os.path.join(PLUGIN_ROOT, "skills", "team-protocol", "SKILL.md"),
+                  encoding="utf-8") as f:
+            protocol_text = f.read()
+        self.assertIn("pushed", protocol_text)
+        self.assertIn("needs pushing first", protocol_text)
+        # the team pushes finished work straight to main; uncommitted work counts as unpushed,
+        # and a receiving agent pulls main before using what was announced there
+        self.assertIn("uncommitted", text)
+        self.assertIn("Commit and push to main, then announce?", text)
+        self.assertIn("straight to `main` by default", protocol_text)
+        self.assertIn("git pull --rebase --autostash", protocol_text)
 
     def test_start_skill_defaults_to_current_room(self):
         # /team-sync:start without a room once configured "hackathon" while the agent was in

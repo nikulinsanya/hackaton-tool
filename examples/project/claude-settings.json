@@ -4,7 +4,8 @@
       "source": {
         "source": "git",
         "url": "git@gitlab.com:nikulinsanya/hackaton-tool.git"
-      }
+      },
+      "autoUpdate": true
     }
   },
   "enabledPlugins": {

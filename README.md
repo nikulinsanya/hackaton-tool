@@ -162,11 +162,50 @@ Laptops sync through git at most once a minute; if news hasn't arrived yet, send
 minute later. There are no approval dialogs for developers. The only one left is an agent trying to
 change room *policy*, because that affects everyone in the room.
 
+If the agent ever says your updates are not reaching the team, it means it cannot push the
+`team-sync` branch - usually you need write (Developer) access to the repo; ask whoever manages it.
+
 ### Already set up before?
 
-- Plugin installed earlier: replace the first two commands with
-  `claude plugin marketplace update tellet` and `claude plugin update team-sync@tellet`.
-- Repo already cloned: replace `git clone ...` with `cd <repo>` and `git pull`.
+- Plugin installed earlier: update it instead of installing (next section).
+- Repo already cloned: replace `git clone ...` with `cd <project-folder>` and `git pull`.
+
+### Update the plugin
+
+The plugin store (marketplace) is a copy of this repo on your laptop; refresh it first, then the
+plugin. In a terminal, one after another:
+
+```bash
+claude plugin marketplace update tellet
+claude plugin update team-sync@tellet
+```
+
+If your project's `.claude/settings.json` also enables the plugin, update that copy too, from the
+project folder:
+
+```bash
+cd <project-folder>
+claude plugin update team-sync@tellet --scope project
+```
+
+Then restart Claude Code; an update takes effect in the next session. Check with
+`claude plugin list`: every `team-sync@tellet` line shows the new version.
+
+**Update automatically on every start:** in Claude, run `/plugin`, open **Marketplaces → tellet**
+and choose **Enable auto-update**. Claude Code then refreshes the marketplace and updates
+`team-sync` each time it starts (the new version is active from the session after). The same switch
+in a settings file is `"autoUpdate": true` on the marketplace entry:
+
+```json
+"extraKnownMarketplaces": {
+  "tellet": {
+    "source": { "source": "git", "url": "git@gitlab.com:nikulinsanya/hackaton-tool.git" },
+    "autoUpdate": true
+  }
+}
+```
+
+It doesn't run when Claude Code's own auto-updates are disabled.
 
 ### Several agents on one laptop
 

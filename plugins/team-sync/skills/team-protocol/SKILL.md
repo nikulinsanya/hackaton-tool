@@ -43,7 +43,7 @@ Write at these moments, not on every edit. Keep every entry short (one sentence,
 | You figured out something non-obvious others would hit too | `team learn "<fact>"` |
 | A convention is agreed with your human ("we use zod") | `team decide "<convention>"` |
 | You changed something others may depend on (API, schema, shared util, env var) | `team change "<what changed>"` add `--breaking` if callers must adapt |
-| You finished something other agents can use (an API, component, migration, shared util) | `team announce "<what is ready + how to use it + where>"` (or suggest `/team-sync:announce` to your human) |
+| You finished something other agents can use (an API, component, migration, shared util) | Only once it is committed and pushed somewhere others can fetch it (straight to `main` by default; a named branch only if your human or the room rules want one): `team announce "<what is ready + how to use it + on branch <name>/on main>"` (or suggest `/team-sync:announce` to your human). If it isn't pushed yet, tell your human it needs pushing first instead of announcing - an announcement to code nobody else can fetch is worse than none. |
 | You need something from another agent | `team ask <agent-id> "<request>"` (or `all`) |
 | Someone asked you | `team reply <their-id>#<ask-id> "<answer>"` add `--done` when delivered |
 | Your own ask was satisfied | `team close <ask-id>` |
@@ -61,7 +61,7 @@ Three levels: **silent**, **tell the user**, **stop and ask the user**.
 | LEARNING from another agent | **Silent.** Use it when relevant (e.g. "staging needs VPN"). |
 | DECISION | **Silent, follow it.** If your current code or plan contradicts it, **tell the user**. |
 | CHANGE (not breaking) | **Silent**, unless it touches code you are editing right now - then tell the user. |
-| READY (something another agent finished) | **Tell the user** in one line at the start of your next answer. If your current task needs it, use it as described (no need to ask the announcing agent first). Don't start unrelated work because of it. |
+| READY (something another agent finished) | **Tell the user** in one line at the start of your next answer. If your current task needs it, use it as described (no need to ask the announcing agent first); if it is on `main` and you don't have it yet, run `git pull --rebase --autostash` first and say so in the same line. Don't start unrelated work because of it. |
 | BREAKING CHANGE | **Always tell the user**, even if you believe you're unaffected: start your answer with a one-line warning (who changed what), then a quick impact check (grep this repo for the affected symbol/route/field; list where it's used in code you work on, or say none found). Propose the adaptation; don't apply it unless your human agrees. |
 | ASK addressed to you | **Tell the user** at the next natural pause, with your proposed answer. Reply with `team reply` once they agree. Do not silently start large work for another agent. |
 | Reply to your ask | Continue the blocked work; `team close <id>` if done; `team update --unblock` if you were blocked. |
@@ -69,6 +69,7 @@ Three levels: **silent**, **tell the user**, **stop and ask the user**.
 | Overlap warning (edit not held; room policy `overlap_action=warn`, the default) | **Tell the user** in one line who is working there, then continue with a minimal change and mention it in your handoff. Stop and ask before refactoring or rewriting that area. |
 | An agent is blocked on something you own | **Tell the user**; it may be worth reprioritising. |
 | Agent stale/offline | Ignore its claims; mention it only if you depend on its work. |
+| Not publishing (push failed) | **Tell the user** in one line what the warning says and that they likely need write access to the repo; keep working, your updates stay queued locally until pushing works. |
 | You finish a task that changed shared code | Decide whether it's breaking (exported function signature/return value, API route, schema/types, config/env var, removed or renamed file) and announce it with `team change "<what changed and what callers must do>" --breaking`. A note at your first edit of the turn reminds you of this before your final answer. |
 
 Rules that always hold:

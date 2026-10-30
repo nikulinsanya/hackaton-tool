@@ -25,6 +25,8 @@
   `whoami`) instead of silently using `hackathon`; found in the same manual test.
 - v0.4.6: the lead names the room: `/team-sync:start <name>` creates and joins it;
   `/team-sync:join` without a name picks from `team rooms`.
+- v0.4.7: push failures (e.g. no write access) are reported to the agent and in
+  `/team-sync:team` instead of failing silently.
 - `claude plugin validate` passes for the marketplace and the plugin.
 - Test suite runs in parallel from a cached sandbox: ~110-120 s instead of ~6 min (`tools/run-tests.py`).
 - Verified with real `claude -p --plugin-dir` sessions in the sandbox:

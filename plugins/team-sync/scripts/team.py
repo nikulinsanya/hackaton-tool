@@ -34,9 +34,10 @@ import tempfile
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-VERSION = "0.4.6"
+VERSION = "0.4.7"
 SCHEMA = 1
 CONFIG_FILE = ".team-sync.json"
+PUSH_ERROR_FILE = "push_error.json"  # local only, in Repo.shared_dir; never on the shared branch
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 STATUSES = ("idle", "in_progress", "blocked", "done")
 ROLES = ("member", "observer")
@@ -99,7 +100,8 @@ BREAKING_IMPACT_INSTR_SHORT = (
 READY_INSTR = (
     "For each READY item: tell your human in one line at the start of your answer. "
     "If your current task needs it, use it as described there (no need to ask the "
-    "announcing agent first)."
+    "announcing agent first); if it is on main and you don't have it yet, run "
+    "`git pull --rebase --autostash` first and say so."
 )
 STOP_INCOMING_INSTR = (
     "Before you finish, add to your answer a one-line warning for each (who changed "
@@ -475,15 +477,34 @@ class Store:
         sha = self._commit([remote, local], remote, updates, "team-sync: merge")
         return sha or remote
 
+    def _push_error_path(self) -> str:
+        return os.path.join(self.repo.shared_dir, PUSH_ERROR_FILE)
+
+    def _clear_push_error(self) -> None:
+        try:
+            os.remove(self._push_error_path())
+        except OSError:
+            pass
+
+    def _record_push_error(self, reason: str) -> None:
+        try:
+            write_json(self._push_error_path(),
+                      {"at": now_iso(), "remote": self.remote, "reason": reason})
+        except OSError:
+            pass
+
     def _push(self) -> str:
         p = self.git.call(["push", "--quiet", "--no-verify", self.remote,
                            "{}:refs/heads/{}".format(self.ref, self.branch)], timeout=20)
         if p.returncode == 0:
+            self._clear_push_error()
             return "pushed"
-        err = p.stderr.decode("utf-8", "replace").lower()
-        if "rejected" in err or "fetch first" in err or "non-fast-forward" in err:
+        err = p.stderr.decode("utf-8", "replace")
+        is_race, reason = _classify_push_error(err, self.remote)
+        if is_race:
             return "rejected"
         self.repo.log_error("push failed: " + err.strip()[:300])
+        self._record_push_error(reason)
         return "push-failed"
 
     def sync(self, force: bool = False) -> str:
@@ -531,6 +552,41 @@ class Store:
             if res != "rejected":
                 return res
         return "gave-up"
+
+
+_PUSH_PERMISSION_MARKERS = (
+    "remote rejected", "not allowed to push", "permission denied", "403",
+    "could not read from remote repository", "authentication failed",
+    "could not read username", "invalid username or password",
+)
+
+
+def _first_stderr_line(err: str) -> str:
+    """First line of push stderr worth showing a human, trimmed to ~120 chars."""
+    for line in err.splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith("hint:") or line.lower().startswith("to "):
+            continue
+        line = re.sub(r"^(remote:|error:|fatal:)\s*", "", line, flags=re.I).strip()
+        if line:
+            return line[:120]
+    return "push failed"
+
+
+def _classify_push_error(err: str, remote: str) -> Tuple[bool, str]:
+    """Classifies a failed `git push`'s stderr. Returns (is_race, reason).
+
+    is_race True: an ordinary concurrent-write race (non-fast-forward, "fetch
+    first", or a plain `[rejected]`) - retry, give up silently like today.
+    is_race False: a failure worth recording for the human, e.g. `[remote
+    rejected]` (server hook or permission) or an auth/permission error; reason
+    is a short human summary."""
+    low = err.lower()
+    if any(m in low for m in _PUSH_PERMISSION_MARKERS):
+        return False, "no write access to {}".format(remote)
+    if "non-fast-forward" in low or "fetch first" in low or "[rejected]" in low:
+        return True, ""
+    return False, _first_stderr_line(err)
 
 
 def _newer(a: bytes, b: bytes) -> bool:
@@ -1142,6 +1198,21 @@ def snapshot(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def push_error_info(repo: Repo) -> Optional[Dict[str, Any]]:
+    """The last recorded push failure (local only), or None."""
+    d = read_json(os.path.join(repo.shared_dir, PUSH_ERROR_FILE))
+    return d if isinstance(d, dict) else None
+
+
+def push_error_line(info: Dict[str, Any]) -> str:
+    return (
+        "! Your team-sync updates are not reaching the team: pushing to {} failed ({}) "
+        "since {}. They stay on this laptop and are sent automatically once pushing "
+        "works. Tell your human in one line; usually they need write (Developer) access "
+        "to the repo."
+    ).format(info.get("remote"), info.get("reason"), human_age(info.get("at")))
+
+
 def reply_hint(aid: str, item_id: str) -> str:
     return '{} reply {}#{} "<answer>" [--done]'.format(CMD, aid, item_id)
 
@@ -1183,6 +1254,10 @@ def digest(ctx: Ctx, sess: Dict[str, Any]) -> List[str]:
     handoff_seen = sess.setdefault("handoff_seen", {})
     shown = set(sess.get("breaking_shown") or [])  # already surfaced by the Stop hook
     lines: List[str] = config_digest(ctx, sess)
+    perr = push_error_info(ctx.repo)
+    if perr and sess.get("push_error_seen") != perr.get("at"):
+        lines.append(push_error_line(perr))
+        sess["push_error_seen"] = perr.get("at")
     for doc in ctx.room_docs():
         aid = doc["id"]
         if aid == me:
@@ -1350,6 +1425,9 @@ def briefing(ctx: Ctx, reported: Optional[Set[str]] = None) -> str:
     stale = [d for d in others if d["_presence"] == "stale"]
     L = ["[team-sync] You are agent \"{}\" (owner: {}) in room \"{}\" as {}.".format(
         me, ident["owner"], room, ident["role"])]
+    perr = push_error_info(ctx.repo)
+    if perr:
+        L.append(push_error_line(perr))
     eff = effective_config(ctx, room)
     cfg_active = {k: v for k, v in eff.items() if v["value"] is not None}
     if "goal" in cfg_active:
@@ -2000,6 +2078,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         docs = ctx.all_docs() if args.all else ctx.room_docs(args.room or ctx.require()["room"])
         print(json.dumps(docs, indent=2, ensure_ascii=False))
         return 0
+    perr = push_error_info(ctx.repo)
+    if perr:
+        print(push_error_line(perr))
     if args.all:
         rooms = sorted({d["room"] for d in ctx.all_docs() if d.get("room")})
         for r in rooms or []:
@@ -2383,6 +2464,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         "last_sync_sec_ago": int(age) if age is not None else None,
         "agents_total": len(ctx.all_docs()),
         "error_log": os.path.join(ctx.repo.shared_dir, "error.log"),
+        "push_error": push_error_info(ctx.repo),
     }
     print(json.dumps(info, indent=2))
     return 0

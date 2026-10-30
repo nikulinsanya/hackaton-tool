@@ -9,6 +9,7 @@ running two agents in two worktrees. Run with:
 import atexit
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -153,6 +154,33 @@ def ctx_text(out):
     return (out or {}).get("hookSpecificOutput", {}).get("additionalContext", "")
 
 
+def push_error_path(repo):
+    """Local path to <shared_dir>/push_error.json for a clone or worktree."""
+    common = git(repo, "rev-parse", "--git-common-dir")
+    if not os.path.isabs(common):
+        common = os.path.join(repo, common)
+    return os.path.join(os.path.realpath(common), "team-sync", "push_error.json")
+
+
+def install_pre_receive(origin, message):
+    """Installs an executable pre-receive hook in a bare repo that rejects every
+    push with `message` on stderr, the way a GitLab project without write access
+    would. Fetch is unaffected: pre-receive only runs on push."""
+    hooks_dir = os.path.join(origin, "hooks")
+    os.makedirs(hooks_dir, exist_ok=True)
+    path = os.path.join(hooks_dir, "pre-receive")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("#!/bin/sh\necho {} >&2\nexit 1\n".format(shlex.quote(message)))
+    os.chmod(path, 0o755)
+
+
+def remove_pre_receive(origin):
+    try:
+        os.remove(os.path.join(origin, "hooks", "pre-receive"))
+    except OSError:
+        pass
+
+
 class TeamSyncTests(unittest.TestCase):
     def setUp(self):
         self.e = Env()
@@ -223,6 +251,8 @@ class TeamSyncTests(unittest.TestCase):
             ids = self.ids(cwd)
             self.assertEqual(ids["sanya-frontend"]["working_on"], "A")
             self.assertEqual(ids["anna-api"]["working_on"], "B")
+            # an ordinary race between two clones is not a reported push failure
+            self.assertFalse(os.path.exists(push_error_path(cwd)))
 
     def test_parallel_writers_same_machine(self):
         e = self.e
@@ -244,6 +274,61 @@ class TeamSyncTests(unittest.TestCase):
         # lose items; writes by different agents must never clobber each other.
         self.assertGreaterEqual(len(docs["sanya-a"]["learnings"]), 1)
         self.assertGreaterEqual(len(docs["sanya-b"]["learnings"]), 1)
+
+    # ---------------------------------------------------------- push errors
+
+    def test_push_failure_reported_then_cleared(self):
+        install_pre_receive(self.e.origin, "GitLab: You are not allowed to push code to this project.")
+        self.e.team(self.sanya, "join", "hackathon", "--as", "frontend")
+        self.e.team(self.sanya, "update", "--working-on", "A")
+
+        # local branch has the update, origin does not
+        local = self.ids(self.sanya)["sanya-frontend"]
+        self.assertEqual(local["working_on"], "A")
+        p = subprocess.run(["git", "show", "team-sync:rooms/hackathon/agents/sanya-frontend.json"],
+                           cwd=self.e.origin, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertNotEqual(p.returncode, 0)
+
+        perr_path = push_error_path(self.sanya)
+        self.assertTrue(os.path.exists(perr_path))
+        with open(perr_path) as f:
+            perr = json.load(f)
+        self.assertEqual(perr["remote"], "origin")
+        self.assertIn("write access", perr["reason"])
+
+        # team status shows it
+        out = self.e.team(self.sanya, "status").stdout
+        self.assertIn("not reaching the team", out)
+
+        # the briefing of a new session shows it
+        text = ctx_text(self.e.hook(self.sanya, "session-start", {}))
+        self.assertIn("not reaching the team", text)
+
+        # prompt digest: once, then quiet
+        out1 = self.e.hook(self.sanya, "prompt", {"prompt": "hi"})
+        self.assertIn("not reaching the team", ctx_text(out1))
+        out2 = self.e.hook(self.sanya, "prompt", {"prompt": "hi again"})
+        self.assertNotIn("not reaching the team", ctx_text(out2) or "")
+
+        # fix the remote: next sync pushes the stored update and clears the error
+        remove_pre_receive(self.e.origin)
+        self.e.team(self.sanya, "sync")
+        p = subprocess.run(["git", "show", "team-sync:rooms/hackathon/agents/sanya-frontend.json"],
+                           cwd=self.e.origin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.assertEqual(p.returncode, 0)
+        self.assertEqual(json.loads(p.stdout)["working_on"], "A")
+        self.assertFalse(os.path.exists(perr_path))
+
+        out = self.e.team(self.sanya, "status").stdout
+        self.assertNotIn("not reaching the team", out)
+
+    def test_push_failure_silent_when_not_joined(self):
+        perr_path = push_error_path(self.sanya)
+        os.makedirs(os.path.dirname(perr_path), exist_ok=True)
+        with open(perr_path, "w") as f:
+            json.dump({"at": "2024-01-01T00:00:00Z", "remote": "origin", "reason": "no write access to origin"}, f)
+        self.assertIsNone(self.e.hook(self.sanya, "session-start", {}))
+        self.assertIsNone(self.e.hook(self.sanya, "prompt", {"prompt": "hi"}))
 
     # -------------------------------------------------------------- overlap
 
@@ -790,6 +875,7 @@ class TeamSyncTests(unittest.TestCase):
         self.assertIn("* READY from anna-api: Authorization is ready", text)
         self.assertNotIn("!! BREAKING", text)
         self.assertIn("tell your human in one line at the start of your answer", text)
+        self.assertIn("git pull --rebase --autostash", text)  # pull main before using it
 
     def test_announce_briefing_lists_recent_announcements_even_offline(self):
         self.join_all()

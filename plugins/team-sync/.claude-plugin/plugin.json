@@ -1,6 +1,6 @@
 {
   "name": "team-sync",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "Opt-in rooms where Claude Code agents share status, decisions, asks and file touches through a git branch, and warn each other before colliding. No server.",
   "author": {
     "name": "Sanya"

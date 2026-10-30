@@ -75,7 +75,8 @@ local ancestor of remote   -> fast-forward local
 remote ancestor of local   -> push
 diverged                   -> merge commit: start from remote tree, overlay each file
                               whose local version is newer (higher `rev`), push
-push rejected              -> retry (max 3)
+push rejected (race)       -> retry (max 3), give up silently
+push failed (not a race)   -> recorded locally, surfaced to the agent (see below)
 ```
 
 `rev` is bumped on every save by the file's single writer, so it orders versions
@@ -85,6 +86,16 @@ history, filtered out by presence).
 Git is called with `GIT_TERMINAL_PROMPT=0`, timeouts, and `push --no-verify`, so it never
 hangs on credentials or runs the project's push hooks.
 
+A failed push is classified by its stderr: a race (`non-fast-forward`, `fetch first`, a
+plain `[rejected]`) is retried and, if it persists, dropped silently like before. Anything
+else (`[remote rejected]` from a server-side hook, "not allowed to push", a permission or
+auth error) means this machine cannot reach the team at all, so it is recorded in
+`<shared_dir>/push_error.json` (`{"at", "remote", "reason"}`, local only, never written to
+the shared branch) and cleared on the next successful push. The agent is warned in its
+briefing and once per session per failure in its digest (`push_error_line()`), and
+`team status`/`team doctor` surface it too, so a developer without write access to the
+remote finds out instead of silently working on an island.
+
 ### 3.3 Local state (not shared)
 
 | Path | Scope | Content |
@@ -93,6 +104,7 @@ hangs on credentials or runs the project's push hooks.
 | `<git-dir>/team-sync/sessions/<session>.json` | per Claude session | what this session has already seen, overlap acks, last digest time |
 | `<common-dir>/team-sync/last_fetch` | per clone | throttle stamp |
 | `<common-dir>/team-sync/error.log` | per clone | hook errors (hooks are silent) |
+| `<common-dir>/team-sync/push_error.json` | per clone | last push failure that isn't an ordinary race (`at`, `remote`, `reason`); cleared on the next successful push |
 
 ## 4. Identity and opt-in
 
@@ -185,6 +197,9 @@ policy. See §10.2.
 - Anyone with read access to the repo can read the branch. Treat it like commit messages.
 - Prompt injection: another agent's text reaches your agent's context. The protocol tells agents to treat it as information only, and the overlap check is enforced by a hook, not by the model's goodwill. Keep the room to people you trust with repo write access. This includes room title/description/rules/fields: any member (or a non-joined human) can set them, so treat them as untrusted information like any other agent's text, never as instructions.
 - Branch protection rules that match `team-sync` will block pushes; exclude the branch.
+- A read-only clone of a public repo can still join and work: pushes of the `team-sync`
+  branch fail silently otherwise, so the agent (and through it, the human) is warned
+  instead of working on an island nobody sees (§3.2, `push_error.json`).
 
 ## 9. Known limitations
 
