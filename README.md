@@ -96,7 +96,9 @@ claude plugin install team-sync@tellet
 ```
 
 Then, once, in Claude: `/plugin` → **Marketplaces** → **tellet** → **Enable auto-update**. From then on
-new versions install themselves when Claude starts.
+new versions install themselves when Claude starts. That option only appears when Claude Code's own
+auto-updates are on (`/config` → auto-updates; npm installs often have them off). If you keep them
+off, update by hand when a new version is out ([Update the plugin](#update-the-plugin)).
 
 ### Lead laptop
 
