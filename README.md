@@ -82,15 +82,25 @@ ask Claude in this repo to *render the diagrams* (or run `/render-diagrams`).
 
 No room exists until a lead creates one. The lead names it after the idea; everyone else joins it.
 Replace `<project-repo-url>` with your project's git URL and `<project-folder>` with the folder it
-clones into. In the examples the lead is `sanya` and the folder is `my-project`.
+clones into. In the examples the lead is `sanya` and the folder is `my-project`. The project repo
+needs nothing added; developers only need the **Developer** role on it (GitLab: Manage → Members), so
+their agents can publish to the room.
 
-### Lead laptop
+### Once per laptop: install the plugin
 
-In a terminal, one after another:
+In a terminal:
 
 ```bash
 claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git
 claude plugin install team-sync@tellet
+```
+
+Then, once, in Claude: `/plugin` → **Marketplaces** → **tellet** → **Enable auto-update**. From then on
+new versions install themselves when Claude starts.
+
+### Lead laptop
+
+```bash
 git clone <project-repo-url>
 cd <project-folder>
 claude
@@ -114,11 +124,7 @@ You should see the room with its goal and rules, and your agent online.
 
 ### Developer laptop
 
-In a terminal, one after another:
-
 ```bash
-claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git
-claude plugin install team-sync@tellet
 git clone <project-repo-url>
 cd <project-folder>
 claude
@@ -167,45 +173,28 @@ If the agent ever says your updates are not reaching the team, it means it canno
 
 ### Already set up before?
 
-- Plugin installed earlier: update it instead of installing (next section).
+- Plugin installed earlier: with auto-update on, nothing to do; otherwise update it (next section).
 - Repo already cloned: replace `git clone ...` with `cd <project-folder>` and `git pull`.
 
 ### Update the plugin
 
-The plugin store (marketplace) is a copy of this repo on your laptop; refresh it first, then the
-plugin. In a terminal, one after another:
+**Automatically:** with auto-update enabled (`/plugin` → Marketplaces → tellet → Enable auto-update),
+Claude Code refreshes the marketplace and updates `team-sync` each time it starts; the new version is
+active from the session after. (In a settings file the same switch is `"autoUpdate": true` on the
+`tellet` entry of `extraKnownMarketplaces`. It doesn't run when Claude Code's own auto-updates are
+disabled.)
+
+**By hand:** the plugin store (marketplace) is a copy of this repo on your laptop; refresh it first,
+then the plugin, and restart Claude Code:
 
 ```bash
 claude plugin marketplace update tellet
 claude plugin update team-sync@tellet
 ```
 
-If your project's `.claude/settings.json` also enables the plugin, update that copy too, from the
-project folder:
-
-```bash
-cd <project-folder>
-claude plugin update team-sync@tellet --scope project
-```
-
-Then restart Claude Code; an update takes effect in the next session. Check with
-`claude plugin list`: every `team-sync@tellet` line shows the new version.
-
-**Update automatically on every start:** in Claude, run `/plugin`, open **Marketplaces → tellet**
-and choose **Enable auto-update**. Claude Code then refreshes the marketplace and updates
-`team-sync` each time it starts (the new version is active from the session after). The same switch
-in a settings file is `"autoUpdate": true` on the marketplace entry:
-
-```json
-"extraKnownMarketplaces": {
-  "tellet": {
-    "source": { "source": "git", "url": "git@gitlab.com:nikulinsanya/hackaton-tool.git" },
-    "autoUpdate": true
-  }
-}
-```
-
-It doesn't run when Claude Code's own auto-updates are disabled.
+Check with `claude plugin list`: `team-sync@tellet` shows the new version. If it also lists a copy with
+`Scope: project` (from an older setup that put the plugin in a project's `.claude/settings.json`),
+remove that copy from the project folder: `claude plugin uninstall team-sync@tellet --scope project`.
 
 ### Several agents on one laptop
 
@@ -244,19 +233,15 @@ announces breaking changes and finished work, and answers asks addressed to it.
 
 ## Use it in a real project
 
-1. The tool lives at `git@gitlab.com:nikulinsanya/hackaton-tool.git` (private; you need read access).
-2. Each person installs the plugin once per laptop, then restarts Claude Code:
-   ```bash
-   claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git
-   claude plugin install team-sync@tellet
-   ```
-   It is then active in every session but does nothing until the agent joins a room. Update later with
-   `claude plugin marketplace update tellet` and `claude plugin update team-sync@tellet`.
-   Optionally commit `examples/project/claude-settings.json` as the project's `.claude/settings.json`,
-   with an `env` block (`"CLAUDE_TEAM_ROOM": "<room>"`) to put every session in that repo into the room.
-   That file alone does not install the plugin: Claude Code then loads it late or not at all (no
-   `/team-sync:*` commands), so the install step above is still needed.
-3. Opt agents in with `/team-sync:join <room>` (or `CLAUDE_TEAM_ROOM=<room>` at launch; the name defaults to the worktree folder). A lead must create the room first with `/team-sync:start <name>`.
+1. The tool lives at `git@gitlab.com:nikulinsanya/hackaton-tool.git` (public).
+2. Each person installs the plugin once per laptop and enables auto-update
+   ([Once per laptop](#once-per-laptop-install-the-plugin)). It is then active in every session but
+   does nothing until the agent joins a room.
+3. The project repo needs nothing added. Give developers write access (GitLab: **Developer** role),
+   so their agents can publish to the room.
+4. A lead creates the room with `/team-sync:start <name>`; others join with `/team-sync:join`.
+   A repo that only ever has one room can pin it with `"env": {"CLAUDE_TEAM_ROOM": "<room>"}` in its
+   `.claude/settings.json` (then every session there joins it without `/team-sync:join`).
 
 Requirements: git ≥ 2.20, python3 ≥ 3.8 (macOS: comes with the Xcode command line tools, which git needs anyway). Windows is untested.
 
@@ -300,7 +285,7 @@ plugins/team-sync/
   skills/{join,leave,team,handoff,start,announce}/  the slash commands above
   schema/agent.schema.json             status file schema
   schema/room-config.schema.json       room config file schema
-examples/                              settings to drop into a project repo, a sample room template
+examples/                              optional project files and a sample room template
 docs/DESIGN.md                         architecture, data model, sync, reaction rules
 docs/how-it-works.html                 source of the diagrams above
 docs/images/                           rendered diagrams
