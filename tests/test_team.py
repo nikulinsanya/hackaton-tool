@@ -9,6 +9,7 @@ running two agents in two worktrees. Run with:
 import atexit
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEAM = os.path.join(HERE, "..", "plugins", "team-sync", "scripts", "team.py")
+PLUGIN_SRC_DIR = os.path.join(HERE, "..", "plugins", "team-sync")
 
 # Names baked into the per-process template (see _build_template): the origin
 # plus the clones/worktree every test's setUp asks for. Env.clone()/
@@ -915,6 +917,224 @@ class TeamSyncTests(unittest.TestCase):
         self.assertIn("Breaking changes in the last 24h", text)
         self.assertIn("Handoffs from agents no longer active:", text)
         self.assertIn("auth refactor merged", text)
+
+
+class SelfUpdateTests(unittest.TestCase):
+    """Background self-update: marketplace-install detection, daily throttle,
+    background spawn, success/failure/notify notices. Builds a fake
+    ~/.claude-style config dir (plugin cache, known_marketplaces.json, a
+    marketplace clone) plus a fake `claude` on PATH; never calls the real
+    `claude`. TEAM_SYNC_UPDATE_SYNC makes the hook's spawn synchronous so
+    results are visible to the test as soon as the hook call returns."""
+
+    def setUp(self):
+        self.e = Env()
+        self.repo = self.e.clone("sanya")
+        self.e.team(self.repo, "join", "proj", "--as", "dev1")
+
+        self.cfg = os.path.join(self.e.tmp, "cfg")
+        version_dir = os.path.join(self.cfg, "plugins", "cache", "tellet", "team-sync", "0.0.1")
+        shutil.copytree(PLUGIN_SRC_DIR, version_dir)
+        self.script = os.path.join(version_dir, "scripts", "team.py")
+        self._set_version(os.path.join(version_dir, ".claude-plugin", "plugin.json"), "0.0.1")
+        self._set_script_version(self.script, "0.0.1")
+
+        marketplace_dir = os.path.join(self.cfg, "plugins", "marketplaces", "tellet")
+        os.makedirs(os.path.join(marketplace_dir, ".claude-plugin"))
+        with open(os.path.join(marketplace_dir, ".claude-plugin", "marketplace.json"), "w") as f:
+            json.dump({"name": "tellet",
+                      "plugins": [{"name": "team-sync", "source": "./plugins/team-sync"}]}, f)
+        mp_plugin_dir = os.path.join(marketplace_dir, "plugins", "team-sync", ".claude-plugin")
+        os.makedirs(mp_plugin_dir)
+        self.marketplace_plugin_json = os.path.join(mp_plugin_dir, "plugin.json")
+        with open(self.marketplace_plugin_json, "w") as f:
+            json.dump({"name": "team-sync", "version": "0.0.1"}, f)
+
+        os.makedirs(os.path.join(self.cfg, "plugins"), exist_ok=True)
+        with open(os.path.join(self.cfg, "plugins", "known_marketplaces.json"), "w") as f:
+            json.dump({"tellet": {"installLocation": marketplace_dir}}, f)
+
+        self.bin_dir = os.path.join(self.cfg, "bin")
+        os.makedirs(self.bin_dir)
+        self.claude_log = os.path.join(self.cfg, "claude.log")
+        self._write_fake_claude()
+
+    def tearDown(self):
+        self.e.cleanup()
+
+    @staticmethod
+    def _set_version(plugin_json_path, version):
+        with open(plugin_json_path) as f:
+            d = json.load(f)
+        d["version"] = version
+        with open(plugin_json_path, "w") as f:
+            json.dump(d, f)
+
+    @staticmethod
+    def _set_script_version(team_py_path, version):
+        with open(team_py_path) as f:
+            content = f.read()
+        content = re.sub(r'VERSION = "[^"]+"', 'VERSION = "{}"'.format(version), content, count=1)
+        with open(team_py_path, "w") as f:
+            f.write(content)
+
+    def _write_fake_claude(self):
+        """Logs its argv and: bumps the marketplace plugin.json version for
+        `plugin marketplace update`, exits 0/1 for `plugin update` depending on
+        FAKE_CLAUDE_FAIL_UPDATE. Never a real `claude` call."""
+        path = os.path.join(self.bin_dir, "claude")
+        with open(path, "w") as f:
+            f.write(
+                "#!/usr/bin/env python3\n"
+                "import json, os, sys\n"
+                "log = os.environ.get('FAKE_CLAUDE_LOG')\n"
+                "if log:\n"
+                "    with open(log, 'a') as fh:\n"
+                "        fh.write(' '.join(sys.argv[1:]) + '\\n')\n"
+                "args = sys.argv[1:]\n"
+                "if args[:3] == ['plugin', 'marketplace', 'update']:\n"
+                "    mp = os.environ.get('FAKE_CLAUDE_MARKETPLACE_PLUGIN_JSON')\n"
+                "    if mp:\n"
+                "        with open(mp) as fh:\n"
+                "            d = json.load(fh)\n"
+                "        d['version'] = os.environ.get('FAKE_CLAUDE_NEW_VERSION', '0.0.2')\n"
+                "        with open(mp, 'w') as fh:\n"
+                "            json.dump(d, fh)\n"
+                "    sys.exit(0)\n"
+                "if args[:2] == ['plugin', 'update']:\n"
+                "    sys.exit(1 if os.environ.get('FAKE_CLAUDE_FAIL_UPDATE') else 0)\n"
+                "sys.exit(0)\n"
+            )
+        os.chmod(path, 0o755)
+
+    def hook_env(self, **extra):
+        env = self.e.env(**extra)
+        env["PATH"] = self.bin_dir + os.pathsep + env.get("PATH", "")
+        env["FAKE_CLAUDE_LOG"] = self.claude_log
+        env["FAKE_CLAUDE_MARKETPLACE_PLUGIN_JSON"] = self.marketplace_plugin_json
+        return env
+
+    def run_hook(self, event, session_id, env, cwd=None, script=None):
+        cwd = cwd or self.repo
+        payload = {"cwd": cwd, "session_id": session_id}
+        p = subprocess.run([sys.executable, script or self.script, "hook", event], cwd=cwd, env=env,
+                           input=json.dumps(payload), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return json.loads(p.stdout) if p.stdout.strip() else None
+
+    def claude_calls(self):
+        if not os.path.exists(self.claude_log):
+            return []
+        with open(self.claude_log) as f:
+            return [l.strip() for l in f if l.strip()]
+
+    def update_json(self):
+        path = os.path.join(self.cfg, "team-sync", "update.json")
+        if not os.path.exists(path):
+            return None
+        with open(path) as f:
+            return json.load(f)
+
+    # ---------------------------------------------------------------- tests
+
+    def test_updates_in_background_and_notifies_next_session_once(self):
+        env = self.hook_env(TEAM_SYNC_UPDATE_SYNC="1")
+        out1 = self.run_hook("session-start", "s1", env)
+        self.assertEqual(self.claude_calls(),
+                         ["plugin marketplace update tellet", "plugin update team-sync@tellet"])
+        info = self.update_json()
+        self.assertEqual(info.get("updated_to"), "0.0.2")
+        self.assertNotIn("was updated", ctx_text(out1))
+
+        out2 = self.run_hook("session-start", "s2", env)
+        self.assertIn("team-sync was updated from 0.0.1 to 0.0.2 in the background", ctx_text(out2))
+
+        out3 = self.run_hook("session-start", "s3", env)
+        self.assertNotIn("was updated", ctx_text(out3))
+
+    def test_broken_update_state_never_costs_the_briefing(self):
+        # a self-update failure (here: an update.json with nonsense value types, as a
+        # half-written or hand-edited file could have) must not swallow the briefing
+        os.makedirs(os.path.join(self.cfg, "team-sync"), exist_ok=True)
+        with open(os.path.join(self.cfg, "team-sync", "update.json"), "w") as f:
+            json.dump({"checked_at": 5, "running": [1], "available": {"x": 1},
+                       "updated_to": {"y": 2}, "error": 7}, f)
+        out = self.run_hook("session-start", "s1", self.hook_env(TEAM_SYNC_UPDATE_SYNC="1"))
+        self.assertIn("You are agent", ctx_text(out))
+
+    def test_throttled_to_once_per_24h(self):
+        env1 = self.hook_env(TEAM_SYNC_UPDATE_SYNC="1", TEAM_SYNC_NOW="2026-01-01T00:00:00Z")
+        self.run_hook("session-start", "s1", env1)
+        self.assertEqual(len(self.claude_calls()), 2)
+
+        env2 = self.hook_env(TEAM_SYNC_UPDATE_SYNC="1", TEAM_SYNC_NOW="2026-01-01T12:00:00Z")
+        self.run_hook("session-start", "s2", env2)
+        self.assertEqual(len(self.claude_calls()), 2)  # throttled: no new calls
+
+        env3 = self.hook_env(TEAM_SYNC_UPDATE_SYNC="1", TEAM_SYNC_NOW="2026-01-02T01:00:00Z")
+        self.run_hook("session-start", "s3", env3)
+        self.assertEqual(len(self.claude_calls()), 4)  # 24h passed: runs again
+
+    def test_failed_update_tells_manual_commands(self):
+        env = self.hook_env(TEAM_SYNC_UPDATE_SYNC="1", FAKE_CLAUDE_FAIL_UPDATE="1")
+        self.run_hook("session-start", "s1", env)
+        info = self.update_json()
+        self.assertEqual(info.get("available"), "0.0.2")
+        self.assertNotIn("updated_to", info)
+        self.assertTrue(info.get("error"))
+
+        out2 = self.run_hook("session-start", "s2", env)
+        text = ctx_text(out2)
+        self.assertIn("team-sync 0.0.2 is available (you have 0.0.1)", text)
+        self.assertIn("claude plugin marketplace update tellet", text)
+        self.assertIn("claude plugin update team-sync@tellet", text)
+
+    def test_auto_update_off_does_nothing(self):
+        env = self.hook_env(TEAM_SYNC_UPDATE_SYNC="1", TEAM_SYNC_AUTO_UPDATE="off")
+        self.run_hook("session-start", "s1", env)
+        self.assertEqual(self.claude_calls(), [])
+        self.assertIsNone(self.update_json())
+
+    def test_auto_update_notify_checks_but_never_updates(self):
+        env = self.hook_env(TEAM_SYNC_UPDATE_SYNC="1", TEAM_SYNC_AUTO_UPDATE="notify")
+        self.run_hook("session-start", "s1", env)
+        self.assertEqual(self.claude_calls(), ["plugin marketplace update tellet"])
+        info = self.update_json()
+        self.assertEqual(info.get("available"), "0.0.2")
+        self.assertNotIn("updated_to", info)
+
+        out2 = self.run_hook("session-start", "s2", env)
+        self.assertIn("0.0.2", ctx_text(out2))
+
+    def test_not_joined_is_noop(self):
+        repo2 = self.e.clone("anna")
+        env = self.hook_env(TEAM_SYNC_UPDATE_SYNC="1")
+        out = self.run_hook("session-start", "s1", env, cwd=repo2)
+        self.assertIsNone(out)
+        self.assertEqual(self.claude_calls(), [])
+        self.assertIsNone(self.update_json())
+
+    def test_repo_layout_is_noop(self):
+        # this repo's own copy of team.py is not under a marketplace plugin
+        # cache, even when joined: self-update must stay fully off.
+        env = self.hook_env(TEAM_SYNC_UPDATE_SYNC="1")
+        self.run_hook("session-start", "s1", env, script=TEAM)
+        self.assertEqual(self.claude_calls(), [])
+        self.assertIsNone(self.update_json())
+
+    def test_fresh_lock_is_skipped(self):
+        lock_dir = os.path.join(self.cfg, "team-sync")
+        os.makedirs(lock_dir, exist_ok=True)
+        lock_path = os.path.join(lock_dir, "update.lock")
+        with open(lock_path, "w") as f:
+            f.write("12345")
+        env = self.hook_env()
+        p = subprocess.run([sys.executable, self.script, "self-update"], cwd=self.repo, env=env,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.claude_calls(), [])
+        self.assertTrue(os.path.exists(lock_path))
 
 
 if __name__ == "__main__":

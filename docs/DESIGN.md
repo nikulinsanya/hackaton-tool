@@ -270,3 +270,48 @@ is no lead concept. A `room` CLI call that touches `policy.*` or uses `--from`
 always returns an explicit `ask` from the `pre-bash` hook (not merely "no
 decision"), since the skills' `allowed-tools` would otherwise auto-approve it:
 policy changes need a human, because they affect every agent in the room.
+
+## 11. Self-update (v0.4.8)
+
+Claude Code's own marketplace auto-update only runs when Claude Code's own auto-updates are on
+(`/plugin` → Marketplaces → tellet → Enable auto-update is hidden otherwise - common for npm
+installs). team-sync keeps itself current without that, as the one network path outside
+`Store.sync()`; it always runs in a detached background process, never in a hook's critical path.
+
+**Detection.** The script knows it is a marketplace install when its own plugin root
+(`CLAUDE_PLUGIN_ROOT`, or derived from `__file__`) matches
+`<config_dir>/plugins/cache/<marketplace>/team-sync/<version>/`; `config_dir` and `<marketplace>`
+are read off that path itself, so a non-default `CLAUDE_CONFIG_DIR` just works. Any other layout
+(`--plugin-dir`, running from this repo, tests that don't build that layout) turns the feature
+fully off: no output, no files (`detect_marketplace_install()`).
+
+**Trigger.** `begin_session()` (so both SessionStart and the first-prompt fallback) calls
+`maybe_trigger_self_update()` *after* building this session's own briefing/digest text, so a
+background update never shows up in the session that triggered it. Only when joined, at most once
+per 24h (tracked in `<config_dir>/team-sync/update.json`, user-level, never on the shared branch).
+It spawns a detached `python3 <this script> self-update` (stdin/stdout/stderr to devnull, new
+session/process group) and returns immediately; no network in the hook itself.
+
+**`team self-update`** (also runnable by hand) takes a lock (`<config_dir>/team-sync/update.lock`,
+`O_EXCL`, stale after 10 min), finds `claude` with `shutil.which`, runs
+`claude plugin marketplace update <marketplace>`, reads the new version from the marketplace clone
+(`known_marketplaces.json` → `installLocation` → `.claude-plugin/marketplace.json`'s `team-sync`
+entry's `source` → that directory's `.claude-plugin/plugin.json`), and if it's numerically newer
+than the running `VERSION`, runs `claude plugin update team-sync@<marketplace>`. Every outcome -
+including "claude not found", a failed marketplace/plugin update, or nothing to do - is recorded
+in `update.json` (`checked_at`, `running`, `available`, `updated_to` on success, `error` on
+failure, `notified_*` flags); it never raises. Child `claude` processes run with the parent's
+environment minus Claude-session variables that could confuse a nested CLI (`CLAUDECODE`,
+`CLAUDE_CODE_*`), keeping `CLAUDE_CONFIG_DIR`/`HOME`/`PATH`.
+
+**Notices**, shown once each through the briefing (`self_update_notice()`, also reused by the next
+prompt's digest if the session already started):
+
+- updated: once, until the running `VERSION` catches up with `updated_to`, then cleared silently.
+- failed but a newer version is available: at most once per 24h, with the manual fallback commands
+  (`claude plugin marketplace update <marketplace>`, then `claude plugin update
+  team-sync@<marketplace>`, then restart).
+
+**Opt-out:** `TEAM_SYNC_AUTO_UPDATE=off` (no check at all) or `=notify` (check and tell, never run
+`claude plugin update`); default `on`. `team doctor`'s `self_update` key reports the
+marketplace-install detection result and `update.json`.

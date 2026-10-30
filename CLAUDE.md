@@ -33,7 +33,7 @@ claude --plugin-dir plugins/team-sync            # run Claude Code with the loca
 
 1. **Stdlib only, Python 3.8+.** No pip dependencies, no walrus/match/`X | Y` types. macOS ships 3.9.
 2. **Hooks must never break a session.** Every hook path exits 0. Errors go to `<git-common-dir>/team-sync/error.log`. Not joined → no output, no writes.
-3. **Hooks must be fast.** No network in `pre-edit`. Network only through `Store.sync()`, which is throttled.
+3. **Hooks must be fast.** No network in `pre-edit`. Network only through `Store.sync()`, which is throttled; the only other network path is the background self-update (`maybe_trigger_self_update()`/`run_self_update()`), and that always runs in a detached background process, never in a hook's critical path.
 4. **Single writer per file.** An agent writes only `rooms/<room>/agents/<its-id>.json`, and only its own `rooms/<room>/config/<writer-id>.json` for room config (which mirrors `goal` into the legacy `room.json` on every write). New shared data needs its own per-writer files, or a compare-and-swap design.
 5. **Never touch the user's working tree, index or current branch.** Write the team branch only through `Store.write()` (temp index + `update-ref` CAS).
 6. **No absolute paths, hostnames or secrets in shared files.** Paths are repo-relative. All free text goes through `clean_text()`.

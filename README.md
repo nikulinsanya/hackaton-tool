@@ -95,10 +95,8 @@ claude plugin marketplace add git@gitlab.com:nikulinsanya/hackaton-tool.git
 claude plugin install team-sync@tellet
 ```
 
-Then, once, in Claude: `/plugin` → **Marketplaces** → **tellet** → **Enable auto-update**. From then on
-new versions install themselves when Claude starts. That option only appears when Claude Code's own
-auto-updates are on (`/config` → auto-updates; npm installs often have them off). If you keep them
-off, update by hand when a new version is out ([Update the plugin](#update-the-plugin)).
+That's all: from now on team-sync keeps itself up to date (see
+[Update the plugin](#update-the-plugin)).
 
 ### Lead laptop
 
@@ -175,28 +173,32 @@ If the agent ever says your updates are not reaching the team, it means it canno
 
 ### Already set up before?
 
-- Plugin installed earlier: with auto-update on, nothing to do; otherwise update it (next section).
+- Plugin installed earlier: nothing to do, team-sync updates itself in the background (next section).
 - Repo already cloned: replace `git clone ...` with `cd <project-folder>` and `git pull`.
 
 ### Update the plugin
 
-**Automatically:** with auto-update enabled (`/plugin` → Marketplaces → tellet → Enable auto-update),
-Claude Code refreshes the marketplace and updates `team-sync` each time it starts; the new version is
-active from the session after. (In a settings file the same switch is `"autoUpdate": true` on the
-`tellet` entry of `extraKnownMarketplaces`. It doesn't run when Claude Code's own auto-updates are
-disabled.)
+**Automatically.** About once a day, in a session that is in a room, team-sync checks for a new
+version in the background and installs it (`claude plugin marketplace update tellet`, then
+`claude plugin update team-sync@tellet`). It never slows down a session. Your agent tells you in one
+line when a new version is installed; it's active from your next Claude Code start. If an update fails,
+the agent tells you the commands below instead.
 
-**By hand:** the plugin store (marketplace) is a copy of this repo on your laptop; refresh it first,
-then the plugin, and restart Claude Code:
+To switch it off, set the environment variable `TEAM_SYNC_AUTO_UPDATE=off`; with `notify` it only tells
+you about new versions and installs nothing.
+
+**By hand.** In a terminal, then restart Claude Code:
 
 ```bash
 claude plugin marketplace update tellet
 claude plugin update team-sync@tellet
 ```
 
-Check with `claude plugin list`: `team-sync@tellet` shows the new version. If it also lists a copy with
-`Scope: project` (from an older setup that put the plugin in a project's `.claude/settings.json`),
-remove that copy from the project folder: `claude plugin uninstall team-sync@tellet --scope project`.
+Check with `claude plugin list`. If it also shows a copy with `Scope: project` (from an older setup),
+remove it from that project folder: `claude plugin uninstall team-sync@tellet --scope project`.
+
+Claude Code's own auto-update (`/plugin` → Marketplaces → tellet → Enable auto-update) works too, but
+only when Claude Code's own auto-updates are on (`/config`); you don't need it.
 
 ### Several agents on one laptop
 

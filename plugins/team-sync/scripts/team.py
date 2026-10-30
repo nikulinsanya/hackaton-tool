@@ -28,13 +28,14 @@ import os
 import random
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-VERSION = "0.4.7"
+VERSION = "0.4.8"
 SCHEMA = 1
 CONFIG_FILE = ".team-sync.json"
 PUSH_ERROR_FILE = "push_error.json"  # local only, in Repo.shared_dir; never on the shared branch
@@ -1258,6 +1259,9 @@ def digest(ctx: Ctx, sess: Dict[str, Any]) -> List[str]:
     if perr and sess.get("push_error_seen") != perr.get("at"):
         lines.append(push_error_line(perr))
         sess["push_error_seen"] = perr.get("at")
+    notice = _never_raise(self_update_notice)
+    if notice:
+        lines.append(notice)
     for doc in ctx.room_docs():
         aid = doc["id"]
         if aid == me:
@@ -1428,6 +1432,9 @@ def briefing(ctx: Ctx, reported: Optional[Set[str]] = None) -> str:
     perr = push_error_info(ctx.repo)
     if perr:
         L.append(push_error_line(perr))
+    notice = _never_raise(self_update_notice)
+    if notice:
+        L.append("[team-sync] " + notice)
     eff = effective_config(ctx, room)
     cfg_active = {k: v for k, v in eff.items() if v["value"] is not None}
     if "goal" in cfg_active:
@@ -1548,6 +1555,290 @@ def maybe_heartbeat(ctx: Ctx) -> None:
         ctx.save_me(doc, "heartbeat", content=content, sync=False)
 
 
+# ------------------------------------------------------------- self-update
+#
+# The one network path outside Store.sync(): keeps a marketplace install of
+# this plugin current when Claude Code's own `/plugin` auto-update is off (the
+# common case for npm installs or "autoUpdates": false). Fully inert unless
+# the running script sits inside a marketplace plugin cache - any other
+# layout (--plugin-dir, this repo, tests that don't build that layout) is a
+# no-op with no output and no files. See docs/DESIGN.md.
+
+
+def self_update_paths(config_dir: str) -> Tuple[str, str]:
+    d = os.path.join(config_dir, "team-sync")
+    return os.path.join(d, "update.json"), os.path.join(d, "update.lock")
+
+
+def detect_marketplace_install() -> Optional[Tuple[str, str, str]]:
+    """(config_dir, marketplace, version) if this script is running from
+    <config_dir>/plugins/cache/<marketplace>/team-sync/<version>/scripts/team.py,
+    else None. config_dir and marketplace are derived from the path itself, so
+    this also picks up a non-default CLAUDE_CONFIG_DIR without reading it."""
+    root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = os.path.realpath(root)
+    version_dir = root
+    version = os.path.basename(version_dir)
+    team_sync_dir = os.path.dirname(version_dir)
+    if os.path.basename(team_sync_dir) != "team-sync":
+        return None
+    marketplace_dir = os.path.dirname(team_sync_dir)
+    marketplace = os.path.basename(marketplace_dir)
+    cache_dir = os.path.dirname(marketplace_dir)
+    if os.path.basename(cache_dir) != "cache":
+        return None
+    plugins_dir = os.path.dirname(cache_dir)
+    if os.path.basename(plugins_dir) != "plugins":
+        return None
+    config_dir = os.path.dirname(plugins_dir)
+    if not marketplace or not version:
+        return None
+    return config_dir, marketplace, version
+
+
+def _version_tuple(v: Any) -> Tuple[int, ...]:
+    out = []
+    for part in str(v).split("."):
+        try:
+            out.append(int(part))
+        except ValueError:
+            out.append(0)
+    return tuple(out)
+
+
+def _read_update_info(path: str) -> Dict[str, Any]:
+    d = read_json(path)
+    return dict(d) if isinstance(d, dict) else {}
+
+
+def _acquire_update_lock(lock_path: str) -> bool:
+    """O_EXCL lock, stale after 10 min (a crashed/killed self-update)."""
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    for _ in range(2):
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            return True
+        except FileExistsError:
+            try:
+                stale = (time.time() - os.path.getmtime(lock_path)) > 600
+            except OSError:
+                stale = True
+            if not stale:
+                return False
+            try:
+                os.remove(lock_path)
+            except OSError:
+                pass
+    return False
+
+
+def _release_update_lock(lock_path: str) -> None:
+    try:
+        os.remove(lock_path)
+    except OSError:
+        pass
+
+
+_SELF_UPDATE_DROP_ENV = {"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID"}
+
+
+def _claude_child_env() -> Dict[str, str]:
+    """Env for a nested `claude` call: drop variables that identify/configure
+    the current Claude Code session (which could confuse a nested CLI); keep
+    CLAUDE_CONFIG_DIR, HOME, PATH and everything else."""
+    env = dict(os.environ)
+    for k in list(env):
+        if k in _SELF_UPDATE_DROP_ENV or k.startswith("CLAUDE_CODE_"):
+            del env[k]
+    return env
+
+
+def run_self_update() -> None:
+    """`team self-update`: checks the marketplace for a newer team-sync and
+    updates it. Never raises - every outcome, including "not applicable" cases
+    that return early, is recorded in update.json (except when this isn't a
+    marketplace install at all, or the lock is held: then nothing happens)."""
+    install = detect_marketplace_install()
+    if not install:
+        return
+    config_dir, marketplace, version = install
+    mode = os.environ.get("TEAM_SYNC_AUTO_UPDATE", "on").strip().lower()
+    if mode == "off":
+        return
+    update_path, lock_path = self_update_paths(config_dir)
+    if not _acquire_update_lock(lock_path):
+        return
+    info = _read_update_info(update_path)
+    try:
+        info["checked_at"] = now_iso()
+        info["running"] = version
+        claude = shutil.which("claude")
+        if not claude:
+            info["error"] = "claude executable not found on PATH"
+            return
+        env = _claude_child_env()
+        p = subprocess.run([claude, "plugin", "marketplace", "update", marketplace], env=env,
+                           timeout=120, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if p.returncode != 0:
+            info["error"] = "marketplace update failed: {}".format(
+                _first_stderr_line(p.stderr.decode("utf-8", "replace")))
+            return
+        known = read_json(os.path.join(config_dir, "plugins", "known_marketplaces.json"))
+        mp_entry = known.get(marketplace) if isinstance(known, dict) else None
+        install_location = mp_entry.get("installLocation") if isinstance(mp_entry, dict) else None
+        if not install_location:
+            info["error"] = "marketplace '{}' has no known install location".format(marketplace)
+            return
+        mp_meta = read_json(os.path.join(install_location, ".claude-plugin", "marketplace.json"))
+        plugin_entry = None
+        for entry in (mp_meta.get("plugins") or []) if isinstance(mp_meta, dict) else []:
+            if isinstance(entry, dict) and entry.get("name") == "team-sync":
+                plugin_entry = entry
+                break
+        if not plugin_entry:
+            info["error"] = "team-sync not listed in the marketplace"
+            return
+        source = plugin_entry.get("source") or "./plugins/team-sync"
+        source_dir = source if os.path.isabs(source) else os.path.join(install_location, source)
+        plugin_meta = read_json(os.path.join(source_dir, ".claude-plugin", "plugin.json"))
+        available = plugin_meta.get("version") if isinstance(plugin_meta, dict) else None
+        if not available:
+            info["error"] = "could not read team-sync's version from the marketplace"
+            return
+        info["available"] = available
+        info.pop("error", None)
+        if mode == "notify":
+            if _version_tuple(available) > _version_tuple(version):
+                info["error"] = "TEAM_SYNC_AUTO_UPDATE=notify: not applying automatically"
+            return
+        if _version_tuple(available) <= _version_tuple(version):
+            return
+        p2 = subprocess.run([claude, "plugin", "update", "team-sync@{}".format(marketplace)],
+                            env=env, timeout=120, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if p2.returncode == 0:
+            info["updated_to"] = available
+            info.pop("error", None)
+        else:
+            info["error"] = "plugin update failed: {}".format(
+                _first_stderr_line(p2.stderr.decode("utf-8", "replace")))
+    except Exception as e:  # noqa: BLE001 - self-update must never raise
+        info["error"] = "unexpected error: {!r}".format(e)
+    finally:
+        try:
+            write_json(update_path, info)
+        except OSError:
+            pass
+        _release_update_lock(lock_path)
+
+
+def _never_raise(fn: Any) -> Any:
+    """Self-update is a side feature: a failure in it must never cost a session its
+    briefing or digest, so its call sites swallow every error (logged nowhere: the
+    next day's check simply tries again)."""
+    try:
+        return fn()
+    except Exception:
+        return None
+
+
+def maybe_trigger_self_update() -> None:
+    """Called once from begin_session, after this session's own briefing/digest
+    text is already built, so a background update never shows up in the same
+    session that triggered it. Spawns a detached `team self-update` at most
+    once per 24h (tracked in update.json); does no network itself."""
+    mode = os.environ.get("TEAM_SYNC_AUTO_UPDATE", "on").strip().lower()
+    if mode == "off":
+        return
+    install = detect_marketplace_install()
+    if not install:
+        return
+    config_dir, _marketplace, _version = install
+    update_path, _lock_path = self_update_paths(config_dir)
+    info = read_json(update_path)
+    if isinstance(info, dict) and within(info.get("checked_at"), 86400):
+        return
+    try:
+        new_info = dict(info) if isinstance(info, dict) else {}
+        new_info["checked_at"] = now_iso()
+        write_json(update_path, new_info)
+    except OSError:
+        return
+    argv = ["python3", os.path.abspath(__file__), "self-update"]
+    try:
+        if os.environ.get("TEAM_SYNC_UPDATE_SYNC"):
+            subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL, timeout=130)
+        else:
+            kwargs: Dict[str, Any] = {}
+            if hasattr(os, "setsid"):
+                kwargs["start_new_session"] = True
+            subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, **kwargs)
+    except OSError:
+        pass
+
+
+def self_update_notice() -> Optional[str]:
+    """Line for the briefing or the next prompt's digest about a background
+    self-update, or None. Mutates update.json so the "updated" notice is shown
+    once (cleared silently once the running VERSION catches up) and the
+    "failed but available" notice is shown at most once per 24h."""
+    install = detect_marketplace_install()
+    if not install:
+        return None
+    config_dir, marketplace, _version = install
+    update_path, _lock_path = self_update_paths(config_dir)
+    info = read_json(update_path)
+    if not isinstance(info, dict):
+        return None
+    changed = False
+    line = None
+    updated_to = info.get("updated_to")
+    if updated_to:
+        if _version_tuple(VERSION) < _version_tuple(updated_to):
+            if not info.get("notified_updated"):
+                line = (
+                    "team-sync was updated from {} to {} in the background; it's active from "
+                    "your next Claude Code start. Tell your human in one line."
+                ).format(info.get("running") or VERSION, updated_to)
+                info["notified_updated"] = True
+                changed = True
+        else:
+            if info.get("notified_updated") or "updated_to" in info:
+                info.pop("updated_to", None)
+                info.pop("notified_updated", None)
+                changed = True
+    if line is None:
+        available = info.get("available")
+        error = info.get("error")
+        if available and error and _version_tuple(available) > _version_tuple(VERSION):
+            if not within(info.get("notified_failed_at"), 86400):
+                line = (
+                    "team-sync {} is available (you have {}), the automatic update failed ({}). "
+                    "Tell your human to run: claude plugin marketplace update {}, then claude "
+                    "plugin update team-sync@{}, then restart Claude Code."
+                ).format(available, VERSION, error, marketplace, marketplace)
+                info["notified_failed_at"] = now_iso()
+                changed = True
+    if changed:
+        write_json(update_path, info)
+    return line
+
+
+def self_update_doctor_info() -> Dict[str, Any]:
+    install = detect_marketplace_install()
+    if not install:
+        return {"marketplace_install": None, "update": None}
+    config_dir, marketplace, version = install
+    update_path, _lock_path = self_update_paths(config_dir)
+    return {
+        "marketplace_install": {"config_dir": config_dir, "marketplace": marketplace, "version": version},
+        "update": read_json(update_path),
+    }
+
+
 def begin_session(ctx: Ctx, sid: str) -> Tuple[Dict[str, Any], str]:
     """Mark this agent online, publish it, and build the briefing. Run by SessionStart,
     and by the first prompt when SessionStart never fired for this session (a plugin
@@ -1562,6 +1853,7 @@ def begin_session(ctx: Ctx, sid: str) -> Tuple[Dict[str, Any], str]:
     mark_all_seen(ctx, sess)
     ctx.save_session(sid, sess)
     ctx.cleanup_sessions()
+    _never_raise(maybe_trigger_self_update)  # after `text` is built: never in this session's own briefing
     return sess, text
 
 
@@ -2452,6 +2744,11 @@ def cmd_room(args: argparse.Namespace) -> int:
     return cmd_room_show(args)
 
 
+def cmd_self_update(args: argparse.Namespace) -> int:
+    run_self_update()
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     ctx = Ctx()
     s = ctx.store
@@ -2465,6 +2762,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         "agents_total": len(ctx.all_docs()),
         "error_log": os.path.join(ctx.repo.shared_dir, "error.log"),
         "push_error": push_error_info(ctx.repo),
+        "self_update": self_update_doctor_info(),
     }
     print(json.dumps(info, indent=2))
     return 0
@@ -2586,6 +2884,8 @@ def build_parser() -> argparse.ArgumentParser:
     rexp.add_argument("--room")
 
     add("doctor", cmd_doctor, "diagnostics")
+    add("self-update", cmd_self_update,
+        "(internal, also usable by hand) check the marketplace and update team-sync in the background")
 
     sp = sub.add_parser("hook", help="(internal) Claude Code hook handler")
     sp.add_argument("event", choices=sorted(HOOKS))

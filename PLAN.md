@@ -27,6 +27,11 @@
   `/team-sync:join` without a name picks from `team rooms`.
 - v0.4.7: push failures (e.g. no write access) are reported to the agent and in
   `/team-sync:team` instead of failing silently.
+- v0.4.8: a marketplace install of team-sync updates itself in the background (detached
+  process, no network in a hook) about once a day in sessions that are in a room, and tells
+  the agent once when a new version is active or when the automatic update failed; opt out or
+  make it check-only with `TEAM_SYNC_AUTO_UPDATE`. Covers laptops with Claude Code's own
+  auto-updates off (npm installs, `"autoUpdates": false`), where `/plugin`'s toggle is hidden.
 - `claude plugin validate` passes for the marketplace and the plugin.
 - Test suite runs in parallel from a cached sandbox: ~110-120 s instead of ~6 min (`tools/run-tests.py`).
 - Verified with real `claude -p --plugin-dir` sessions in the sandbox:
